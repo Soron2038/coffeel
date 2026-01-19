@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CofFeEL - Admin Panel</title>
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <div class="admin-container">
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="header-content">
+        <h1 class="admin-title">☕ CofFeEL Admin</h1>
+        <p class="admin-subtitle">Administration Panel</p>
+      </div>
+      <div class="header-actions">
+        <a href="/" class="btn btn-secondary">Back to Kiosk</a>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="active-users">Active Users</button>
+      <button class="tab-btn" data-tab="deleted-users">Deleted Users</button>
+      <button class="tab-btn" data-tab="payments">Payment History</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </div>
+
+    <!-- Tab Content -->
+    <main class="admin-main">
+      <!-- Active Users Tab -->
+      <div id="active-users-tab" class="tab-content active">
+        <div class="tab-header">
+          <h2>Active Users</h2>
+          <button id="export-csv-btn" class="btn btn-secondary">Export CSV</button>
+        </div>
+        
+        <div id="active-users-list" class="users-table-container">
+          <!-- Active users table will be inserted here -->
+        </div>
+      </div>
+
+      <!-- Deleted Users Tab -->
+      <div id="deleted-users-tab" class="tab-content">
+        <div class="tab-header">
+          <h2>Deleted Users</h2>
+          <p class="text-muted">Users who have removed themselves from the kiosk</p>
+        </div>
+        
+        <div id="deleted-users-list" class="users-table-container">
+          <!-- Deleted users table will be inserted here -->
+        </div>
+      </div>
+
+      <!-- Payments Tab -->
+      <div id="payments-tab" class="tab-content">
+        <div class="tab-header">
+          <h2>Payment History</h2>
+          <div class="filter-controls">
+            <select id="payment-filter" class="form-select">
+              <option value="all">All Payments</option>
+              <option value="request">Requests Only</option>
+              <option value="received">Received Only</option>
+            </select>
+          </div>
+        </div>
+        
+        <div id="payments-list" class="payments-table-container">
+          <!-- Payments table will be inserted here -->
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="settings-tab" class="tab-content">
+        <div class="tab-header">
+          <h2>System Settings</h2>
+          <p class="text-muted">Changes take effect immediately</p>
+        </div>
+        
+        <form id="settings-form" class="settings-form">
+          <div class="settings-section">
+            <h3>Coffee Pricing</h3>
+            <div class="form-group">
+              <label for="coffee-price">Price per Coffee (€)</label>
+              <input type="number" id="coffee-price" name="coffee_price" step="0.01" min="0" required>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Bank Details</h3>
+            <div class="form-group">
+              <label for="bank-owner">Account Holder</label>
+              <input type="text" id="bank-owner" name="bank_owner" required>
+            </div>
+            <div class="form-group">
+              <label for="bank-iban">IBAN</label>
+              <input type="text" id="bank-iban" name="bank_iban" required>
+            </div>
+            <div class="form-group">
+              <label for="bank-bic">BIC</label>
+              <input type="text" id="bank-bic" name="bank_bic" required>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Email Configuration</h3>
+            <div class="form-group">
+              <label for="admin-email">Admin Email</label>
+              <input type="email" id="admin-email" name="admin_email" required>
+              <small>Receives copies of all payment requests</small>
+            </div>
+            <div class="form-group">
+              <label for="smtp-from">From Address</label>
+              <input type="text" id="smtp-from" name="smtp_from" required>
+              <small>E.g., "CofFeEL System &lt;coffee@example.com&gt;"</small>
+            </div>
+            <div class="form-group">
+              <label for="smtp-host">SMTP Host</label>
+              <input type="text" id="smtp-host" name="smtp_host" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="smtp-port">SMTP Port</label>
+                <input type="number" id="smtp-port" name="smtp_port" required>
+              </div>
+              <div class="form-group">
+                <label for="smtp-secure">Use TLS/SSL</label>
+                <select id="smtp-secure" name="smtp_secure">
+                  <option value="false">No (STARTTLS)</option>
+                  <option value="true">Yes (TLS/SSL)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="smtp-user">SMTP Username</label>
+              <input type="text" id="smtp-user" name="smtp_user" required>
+            </div>
+            <div class="form-group">
+              <label for="smtp-pass">SMTP Password</label>
+              <input type="password" id="smtp-pass" name="smtp_pass" placeholder="Leave empty to keep current">
+              <small>Only fill in to change password</small>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+            <button type="button" id="test-email-btn" class="btn btn-secondary">Test Email</button>
+          </div>
+        </form>
+      </div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast" style="display: none;">
+      <span id="toast-message"></span>
+    </div>
+  </div>
+
+  <!-- Confirm Payment Modal -->
+  <div id="confirm-payment-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeConfirmPaymentModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Confirm Payment Received</h2>
+        <button class="modal-close" onclick="closeConfirmPaymentModal()" aria-label="Close">&times;</button>
+      </div>
+      <form id="confirm-payment-form" class="modal-body">
+        <p>Confirm payment for <strong id="payment-user-name"></strong></p>
+        
+        <div class="form-group">
+          <label for="payment-amount">Amount Received (€)</label>
+          <input type="number" id="payment-amount" name="amount" step="0.01" min="0.01" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="payment-notes">Notes (optional)</label>
+          <textarea id="payment-notes" name="notes" rows="3" placeholder="E.g., Bank transfer received on 2024-01-15"></textarea>
+        </div>
+        
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeConfirmPaymentModal()">Cancel</button>
+          <button type="submit" class="btn btn-success">Confirm Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>
