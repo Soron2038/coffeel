@@ -174,7 +174,6 @@ const confirmPayment = (userId, amount, notes = '') => {
   }
 
   const oldPending = user.pendingPayment;
-  const oldBalance = user.accountBalance;
 
   // Calculate how much pending is cleared vs. credit created
   const pendingCleared = Math.min(receivedAmount, oldPending);

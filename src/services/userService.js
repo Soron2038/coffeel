@@ -85,7 +85,7 @@ const createUser = (firstName, lastName, email) => {
 
   try {
     const result = db.run(
-      `INSERT INTO users (first_name, last_name, email) VALUES (?, ?, ?)`,
+      'INSERT INTO users (first_name, last_name, email) VALUES (?, ?, ?)',
       [cleanFirstName, cleanLastName, cleanEmail]
     );
 
@@ -119,7 +119,7 @@ const softDeleteUser = (id) => {
 
   try {
     db.run(
-      `UPDATE users SET deleted_by_user = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      'UPDATE users SET deleted_by_user = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?',
       [id]
     );
 
@@ -150,7 +150,7 @@ const restoreUser = (id) => {
 
   try {
     db.run(
-      `UPDATE users SET deleted_by_user = 0, deleted_at = NULL WHERE id = ?`,
+      'UPDATE users SET deleted_by_user = 0, deleted_at = NULL WHERE id = ?',
       [id]
     );
 
@@ -214,7 +214,7 @@ const incrementCoffee = (id) => {
   try {
     const oldCount = user.coffeeCount;
     db.run(
-      `UPDATE users SET coffee_count = coffee_count + 1 WHERE id = ?`,
+      'UPDATE users SET coffee_count = coffee_count + 1 WHERE id = ?',
       [id]
     );
 
@@ -245,7 +245,7 @@ const decrementCoffee = (id) => {
   try {
     const oldCount = user.coffeeCount;
     db.run(
-      `UPDATE users SET coffee_count = coffee_count - 1 WHERE id = ? AND coffee_count > 0`,
+      'UPDATE users SET coffee_count = coffee_count - 1 WHERE id = ? AND coffee_count > 0',
       [id]
     );
 
@@ -278,7 +278,7 @@ const setCoffeeCount = (id, count) => {
   try {
     const oldCount = user.coffeeCount;
     db.run(
-      `UPDATE users SET coffee_count = ? WHERE id = ?`,
+      'UPDATE users SET coffee_count = ? WHERE id = ?',
       [newCount, id]
     );
 
@@ -315,7 +315,7 @@ const adjustBalance = (id, amount, notes = '') => {
     const newBalance = Math.round((oldBalance + adjustAmount) * 100) / 100;
 
     db.run(
-      `UPDATE users SET account_balance = ? WHERE id = ?`,
+      'UPDATE users SET account_balance = ? WHERE id = ?',
       [newBalance, id]
     );
 
