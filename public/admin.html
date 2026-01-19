@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1f2937">
+  <title>CofFeEL Admin Panel</title>
+  <link rel="icon" type="image/png" href="/images/favicon.png">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <div class="admin-app">
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="header-left">
+        <h1 class="admin-logo">☕ CofFeEL <span>Admin</span></h1>
+      </div>
+      <div class="header-right">
+        <a href="/" class="btn btn-secondary btn-sm">← Back to Kiosk</a>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="admin-nav">
+      <button class="nav-tab active" data-tab="active-users">Active Users</button>
+      <button class="nav-tab" data-tab="deleted-users">Deleted Users</button>
+      <button class="nav-tab" data-tab="payments">Payment History</button>
+      <button class="nav-tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="admin-main">
+      <!-- Active Users Tab -->
+      <section class="tab-content active" id="active-users">
+        <div class="section-header">
+          <h2>Active Users</h2>
+          <div class="section-actions">
+            <button class="btn btn-primary btn-sm" id="exportCsvBtn">Export CSV</button>
+          </div>
+        </div>
+        
+        <!-- Summary Cards -->
+        <div class="summary-cards" id="summaryCards">
+          <div class="summary-card">
+            <span class="summary-label">Total Users</span>
+            <span class="summary-value" id="totalUsers">-</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">Total Pending</span>
+            <span class="summary-value warning" id="totalPending">-</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">Total Credit</span>
+            <span class="summary-value success" id="totalCredit">-</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">Total Debt</span>
+            <span class="summary-value danger" id="totalDebt">-</span>
+          </div>
+        </div>
+
+        <div class="user-table-container">
+          <table class="data-table" id="activeUsersTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Coffees</th>
+                <th>Pending</th>
+                <th>Balance</th>
+                <th>Last Request</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="activeUsersBody">
+              <!-- Users will be rendered here -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Deleted Users Tab -->
+      <section class="tab-content" id="deleted-users">
+        <div class="section-header">
+          <h2>Deleted Users</h2>
+          <p class="section-description">Users who have deleted themselves. You can restore them or process outstanding payments.</p>
+        </div>
+
+        <div class="user-table-container">
+          <table class="data-table" id="deletedUsersTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Coffees</th>
+                <th>Pending</th>
+                <th>Balance</th>
+                <th>Deleted At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="deletedUsersBody">
+              <!-- Deleted users will be rendered here -->
+            </tbody>
+          </table>
+          <div class="empty-message" id="noDeletedUsers" style="display: none;">
+            No deleted users found.
+          </div>
+        </div>
+      </section>
+
+      <!-- Payment History Tab -->
+      <section class="tab-content" id="payments">
+        <div class="section-header">
+          <h2>Payment History</h2>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters">
+          <div class="filter-group">
+            <label for="filterType">Type</label>
+            <select id="filterType">
+              <option value="">All</option>
+              <option value="request">Requests</option>
+              <option value="received">Received</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filterStartDate">From</label>
+            <input type="date" id="filterStartDate">
+          </div>
+          <div class="filter-group">
+            <label for="filterEndDate">To</label>
+            <input type="date" id="filterEndDate">
+          </div>
+          <button class="btn btn-primary btn-sm" id="applyFilters">Apply</button>
+          <button class="btn btn-secondary btn-sm" id="clearFilters">Clear</button>
+        </div>
+
+        <div class="user-table-container">
+          <table class="data-table" id="paymentsTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>User</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Coffees</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="paymentsBody">
+              <!-- Payments will be rendered here -->
+            </tbody>
+          </table>
+          <div class="empty-message" id="noPayments" style="display: none;">
+            No payments found.
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Tab -->
+      <section class="tab-content" id="settings">
+        <div class="section-header">
+          <h2>Settings</h2>
+          <p class="section-description">Configure coffee price and bank details for payment emails.</p>
+        </div>
+
+        <form class="settings-form" id="settingsForm">
+          <div class="settings-group">
+            <h3>Coffee Price</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="coffeePrice">Price per Coffee (€)</label>
+                <input type="number" id="coffeePrice" name="coffee_price" step="0.01" min="0" max="100" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3>Bank Details</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bankOwner">Account Owner</label>
+                <input type="text" id="bankOwner" name="bank_owner" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bankIban">IBAN</label>
+                <input type="text" id="bankIban" name="bank_iban" required>
+              </div>
+              <div class="form-group">
+                <label for="bankBic">BIC</label>
+                <input type="text" id="bankBic" name="bank_bic" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3>Admin Email</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="adminEmail">Admin Email (CC on payment requests)</label>
+                <input type="email" id="adminEmail" name="admin_email" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <!-- Confirm Payment Modal -->
+    <div class="modal-overlay" id="confirmPaymentModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Confirm Payment</h2>
+          <button class="modal-close" id="closePaymentModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="paymentUserInfo"></p>
+          <div class="form-group">
+            <label for="paymentAmount">Amount Received (€)</label>
+            <input type="number" id="paymentAmount" step="0.01" min="0.01" required>
+          </div>
+          <div class="form-group">
+            <label for="paymentNotes">Notes (optional)</label>
+            <input type="text" id="paymentNotes" placeholder="e.g., Bank transfer">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="cancelPayment">Cancel</button>
+          <button class="btn btn-success" id="submitPayment">Confirm Payment</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adjust Coffee Modal -->
+    <div class="modal-overlay" id="adjustCoffeeModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Adjust Coffee Count</h2>
+          <button class="modal-close" id="closeAdjustModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="adjustUserInfo"></p>
+          <div class="form-group">
+            <label for="newCoffeeCount">New Coffee Count</label>
+            <input type="number" id="newCoffeeCount" min="0" required>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="cancelAdjust">Cancel</button>
+          <button class="btn btn-primary" id="submitAdjust">Update</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generic Confirm Modal -->
+    <div class="modal-overlay" id="confirmModal">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2 id="genericConfirmTitle">Confirm</h2>
+        </div>
+        <div class="modal-body">
+          <p id="genericConfirmMessage"></p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="genericConfirmCancel">Cancel</button>
+          <button class="btn btn-danger" id="genericConfirmOk">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>
