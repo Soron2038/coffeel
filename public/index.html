@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#2563eb">
+  <title>CofFeEL - Coffee Tracking</title>
+  <link rel="icon" type="image/png" href="/images/favicon.png">
+  <link rel="apple-touch-icon" href="/images/logo.png">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <h1 class="logo">☕ CofFeEL</h1>
+        <button class="btn btn-primary" id="addUserBtn">
+          <span class="btn-icon">+</span>
+          Add User
+        </button>
+      </div>
+      
+      <!-- Search -->
+      <div class="search-container">
+        <input 
+          type="text" 
+          class="search-input" 
+          id="searchInput" 
+          placeholder="Search by name or email..."
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+        >
+        <span class="search-icon">🔍</span>
+      </div>
+    </header>
+
+    <!-- User List -->
+    <main class="main">
+      <div class="user-list" id="userList">
+        <!-- Users will be rendered here -->
+      </div>
+      
+      <!-- Loading State -->
+      <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+      
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState" style="display: none;">
+        <span class="empty-icon">☕</span>
+        <h2>No users found</h2>
+        <p>Click "Add User" to register a new coffee drinker.</p>
+      </div>
+    </main>
+
+    <!-- Add User Modal -->
+    <div class="modal-overlay" id="addUserModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Add New User</h2>
+          <button class="modal-close" id="closeAddUserModal">&times;</button>
+        </div>
+        <form class="modal-body" id="addUserForm">
+          <div class="form-group">
+            <label for="firstName">First Name</label>
+            <input 
+              type="text" 
+              id="firstName" 
+              name="firstName" 
+              required 
+              minlength="2"
+              maxlength="100"
+              placeholder="Enter first name"
+              autocomplete="off"
+            >
+            <span class="form-error" id="firstNameError"></span>
+          </div>
+          <div class="form-group">
+            <label for="lastName">Last Name</label>
+            <input 
+              type="text" 
+              id="lastName" 
+              name="lastName" 
+              required 
+              minlength="2"
+              maxlength="100"
+              placeholder="Enter last name"
+              autocomplete="off"
+            >
+            <span class="form-error" id="lastNameError"></span>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input 
+              type="email" 
+              id="email" 
+              name="email" 
+              required 
+              placeholder="Enter email address"
+              autocomplete="off"
+            >
+            <span class="form-error" id="emailError"></span>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="cancelAddUser">Cancel</button>
+            <button type="submit" class="btn btn-primary">Add User</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Confirm Dialog -->
+    <div class="modal-overlay" id="confirmModal">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h2 id="confirmTitle">Confirm</h2>
+        </div>
+        <div class="modal-body">
+          <p id="confirmMessage"></p>
+          <div class="confirm-details" id="confirmDetails"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
+          <button class="btn btn-danger" id="confirmOk">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+  <script src="/js/kiosk.js"></script>
+</body>
+</html>
