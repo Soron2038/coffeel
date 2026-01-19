@@ -85,10 +85,32 @@ const validateId = (id) => {
   return !isNaN(numId) && numId > 0;
 };
 
+/**
+ * Express middleware to validate :id parameter
+ * Adds parsed userId to req object
+ */
+const validateIdParam = (req, res, next) => {
+  if (!validateId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid user ID' });
+  }
+  req.userId = parseInt(req.params.id, 10);
+  next();
+};
+
+/**
+ * Async handler wrapper to avoid try/catch in every route
+ * Catches errors and passes them to error handler
+ */
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 module.exports = {
   validateEmail,
   validateUserInput,
   sanitizeInput,
   validatePaymentAmount,
   validateId,
+  validateIdParam,
+  asyncHandler,
 };
