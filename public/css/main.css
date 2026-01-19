@@ -250,19 +250,20 @@ body {
 
 /* User List */
 .user-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
 }
 
-/* User Card */
+/* User Card - Clean horizontal layout */
 .user-card {
   background: var(--color-white);
-  border-radius: var(--radius-xl);
-  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
   box-shadow: var(--shadow-sm);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   transition: box-shadow var(--transition-fast);
 }
 
@@ -270,45 +271,51 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-/* User Info */
+/* User Info - Left section, takes available space */
 .user-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
 }
 
 .user-name {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--color-gray-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-email {
   font-size: var(--font-size-sm);
   color: var(--color-gray-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Payment Status */
+/* Payment Status - Between Pay and Delete */
 .user-status {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-top: var(--space-1);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  align-items: flex-start;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  font-size: var(--font-size-sm);
+  padding: 2px 8px;
+  font-size: 12px;
   font-weight: 500;
   border-radius: var(--radius-sm);
 }
 
 .status-pending {
-  background: var(--color-warning-light);
-  color: #b45309;
+  background: transparent;
+  color: var(--color-gray-400);
 }
 
 .status-credit {
@@ -321,35 +328,36 @@ body {
   color: #b91c1c;
 }
 
-/* User Actions */
+/* User Actions - Right section */
 .user-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
-/* Coffee Counter */
+/* Coffee Counter - Compact */
 .coffee-counter {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 4px;
   background: var(--color-gray-100);
-  padding: var(--space-1);
-  border-radius: var(--radius-lg);
+  padding: 6px;
+  border-radius: var(--radius-md);
 }
 
 .coffee-count {
-  min-width: 60px;
+  min-width: 150px;
   text-align: center;
-  font-size: var(--font-size-3xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--color-gray-800);
 }
 
 .btn-counter {
-  width: 52px;
-  height: 52px;
-  font-size: var(--font-size-2xl);
+  width: 44px;
+  height: 44px;
+  font-size: var(--font-size-xl);
   font-weight: 700;
   border-radius: var(--radius-md);
 }
@@ -372,17 +380,18 @@ body {
   background: var(--color-primary-hover);
 }
 
-/* Action Buttons (Pay, Delete) */
+/* Action Buttons (Pay, Delete) - Horizontal */
 .action-buttons {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-1);
 }
 
 .btn-pay {
   background: var(--color-success);
   color: var(--color-white);
-  padding: var(--space-1) var(--space-2);
+  padding: 10px 20px;
+  font-size: var(--font-size-base);
 }
 
 .btn-pay:hover:not(:disabled) {
@@ -392,7 +401,8 @@ body {
 .btn-delete {
   background: transparent;
   color: var(--color-gray-400);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
+  padding: 8px;
 }
 
 .btn-delete:hover:not(:disabled) {

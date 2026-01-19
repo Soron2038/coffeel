@@ -4,6 +4,7 @@ const router = express.Router();
 const userService = require('../services/userService');
 const paymentService = require('../services/paymentService');
 const settingsService = require('../services/settingsService');
+const adminUserService = require('../services/adminUserService');
 const { requireAdmin } = require('./admin');
 const { validateId, validatePaymentAmount } = require('../utils/validation');
 const logger = require('../utils/logger');
@@ -365,6 +366,24 @@ router.get('/payments/summary', requireAdmin, (req, res) => {
 });
 
 // ============================================
+// PUBLIC SETTINGS ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/settings/coffee_price
+ * Get coffee price (public, needed for kiosk display)
+ */
+router.get('/settings/coffee_price', (req, res) => {
+  try {
+    const price = settingsService.getSetting('coffee_price');
+    res.json({ coffeePrice: parseFloat(price) || 0.50 });
+  } catch (err) {
+    logger.error('Failed to get coffee price', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve coffee price' });
+  }
+});
+
+// ============================================
 // SETTINGS ENDPOINTS (Admin only)
 // ============================================
 
@@ -399,6 +418,32 @@ router.put('/settings/:key', requireAdmin, (req, res) => {
   } catch (err) {
     logger.error('Failed to update setting', { error: err.message });
     res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+/**
+ * POST /api/settings/test-smtp
+ * Send a test email to verify SMTP configuration
+ */
+router.post('/settings/test-smtp', requireAdmin, async (req, res) => {
+  try {
+    const emailService = require('../services/emailService');
+    const adminEmail = settingsService.getSetting('admin_email');
+    
+    if (!adminEmail) {
+      return res.status(400).json({ success: false, error: 'Admin email not configured' });
+    }
+
+    const result = await emailService.sendTestEmail(adminEmail);
+    
+    if (result.success) {
+      res.json({ success: true, message: 'Test email sent successfully' });
+    } else {
+      res.json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    logger.error('SMTP test failed', { error: err.message });
+    res.json({ success: false, error: err.message });
   }
 });
 
@@ -477,6 +522,142 @@ router.get('/export/json', requireAdmin, (req, res) => {
   } catch (err) {
     logger.error('Failed to export data', { error: err.message });
     res.status(500).json({ error: 'Failed to export data' });
+  }
+});
+
+// ============================================
+// ADMIN AUTHENTICATION ENDPOINTS
+// ============================================
+
+/**
+ * POST /api/admin/login
+ * Admin login (creates session)
+ */
+router.post('/admin/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const result = adminUserService.verifyCredentials(username, password);
+
+    if (!result.success) {
+      return res.status(401).json({ error: result.error });
+    }
+
+    // Store admin user in session
+    req.session.adminUser = result.user;
+
+    res.json({
+      success: true,
+      user: result.user,
+    });
+  } catch (err) {
+    logger.error('Login error', { error: err.message });
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+/**
+ * POST /api/admin/logout
+ * Admin logout (destroys session)
+ */
+router.post('/admin/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      logger.error('Logout error', { error: err.message });
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.json({ success: true });
+  });
+});
+
+/**
+ * GET /api/admin/session
+ * Check if admin is logged in
+ */
+router.get('/admin/session', (req, res) => {
+  if (req.session && req.session.adminUser) {
+    res.json({ loggedIn: true, user: req.session.adminUser });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+// ============================================
+// ADMIN USER MANAGEMENT ENDPOINTS (Admin only)
+// ============================================
+
+/**
+ * GET /api/admin/users
+ * Get all admin users
+ */
+router.get('/admin/users', requireAdmin, (req, res) => {
+  try {
+    const users = adminUserService.getAllAdminUsers();
+    res.json(users);
+  } catch (err) {
+    logger.error('Failed to get admin users', { error: err.message });
+    res.status(500).json({ error: 'Failed to retrieve admin users' });
+  }
+});
+
+/**
+ * POST /api/admin/users
+ * Create a new admin user
+ */
+router.post('/admin/users', requireAdmin, (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const result = adminUserService.createAdminUser(username, password);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.status(201).json(result.user);
+  } catch (err) {
+    logger.error('Failed to create admin user', { error: err.message });
+    res.status(500).json({ error: 'Failed to create admin user' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/password
+ * Change admin user password
+ */
+router.put('/admin/users/:id/password', requireAdmin, (req, res) => {
+  try {
+    const { password } = req.body;
+    const result = adminUserService.changePassword(
+      parseInt(req.params.id, 10),
+      password
+    );
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to change admin password', { error: err.message });
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id
+ * Delete an admin user
+ */
+router.delete('/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const result = adminUserService.deleteAdminUser(parseInt(req.params.id, 10));
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to delete admin user', { error: err.message });
+    res.status(500).json({ error: 'Failed to delete admin user' });
   }
 });
 

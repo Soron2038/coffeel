@@ -2,11 +2,14 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
+const session = require('express-session');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 
 const db = require('./db/database');
 const apiRouter = require('./routes/api');
-const { adminAuth } = require('./routes/admin');
+const { requireAdminPage } = require('./routes/admin');
+const adminUserService = require('./services/adminUserService');
 const logger = require('./utils/logger');
 
 // Initialize Express app
@@ -29,6 +32,19 @@ app.use(express.json());
 
 // URL-encoded body parser
 app.use(express.urlencoded({ extended: true }));
+
+// Session middleware
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+app.use(session({
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production' && process.env.HTTPS === 'true',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  },
+}));
 
 // Rate limiting (60 requests per minute per IP)
 const limiter = rateLimit({
@@ -55,13 +71,13 @@ if (NODE_ENV === 'development') {
 // STATIC FILES
 // ============================================
 
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, '../public')));
-
-// Admin panel with Basic Auth
-app.use('/admin.html', adminAuth, (req, res) => {
+// Admin panel with session auth (must be BEFORE static middleware)
+app.get('/admin.html', requireAdminPage, (req, res) => {
   res.sendFile(path.join(__dirname, '../public/admin.html'));
 });
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../public')));
 
 // ============================================
 // API ROUTES
@@ -100,6 +116,9 @@ app.use((err, req, res, next) => {
 try {
   db.initialize();
   logger.info('Database initialized successfully');
+  
+  // Ensure default admin user exists
+  adminUserService.ensureDefaultAdmin();
 } catch (err) {
   logger.error('Failed to initialize database', { error: err.message });
   process.exit(1);

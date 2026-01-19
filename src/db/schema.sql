@@ -92,3 +92,14 @@ FOR EACH ROW
 BEGIN
   UPDATE settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
 END;
+
+-- Admin users table (separate from coffee users)
+CREATE TABLE IF NOT EXISTS admin_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_login DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_users_username ON admin_users(username);

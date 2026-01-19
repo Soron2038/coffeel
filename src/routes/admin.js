@@ -1,40 +1,40 @@
-const basicAuth = require('express-basic-auth');
 const logger = require('../utils/logger');
 
 /**
- * Admin authentication middleware using HTTP Basic Auth
- * Credentials are loaded from environment variables
- */
-const adminAuth = basicAuth({
-  users: {
-    [process.env.ADMIN_USER || 'admin']: process.env.ADMIN_PASS || 'admin',
-  },
-  challenge: true,
-  realm: 'CofFeEL Admin Panel',
-  unauthorizedResponse: (req) => {
-    logger.warn('Unauthorized admin access attempt', {
-      ip: req.ip,
-      path: req.path,
-    });
-    return { error: 'Unauthorized' };
-  },
-});
-
-/**
- * Middleware to check if admin is authenticated
+ * Middleware to check if admin is authenticated via session
  * Returns 401 if not authenticated
  */
 const requireAdmin = (req, res, next) => {
-  adminAuth(req, res, (err) => {
-    if (err) {
-      logger.error('Admin auth error', { error: err.message });
-      return res.status(500).json({ error: 'Authentication error' });
-    }
-    next();
+  if (req.session && req.session.adminUser) {
+    return next();
+  }
+  
+  logger.warn('Unauthorized admin access attempt', {
+    ip: req.ip,
+    path: req.path,
   });
+  
+  // For API requests, return JSON error
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  // For page requests, redirect to login
+  return res.redirect('/login.html');
+};
+
+/**
+ * Middleware to check if user is logged in (for HTML pages)
+ * Redirects to login if not authenticated
+ */
+const requireAdminPage = (req, res, next) => {
+  if (req.session && req.session.adminUser) {
+    return next();
+  }
+  return res.redirect('/login.html');
 };
 
 module.exports = {
-  adminAuth,
   requireAdmin,
+  requireAdminPage,
 };

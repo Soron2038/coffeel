@@ -12,6 +12,7 @@ let filteredUsers = [];
 let searchQuery = '';
 let debounceTimer = null;
 let buttonDebounceTimers = {};
+let coffeePrice = 0.50; // Default, loaded from server
 
 // ============================================
 // DOM Elements
@@ -98,6 +99,11 @@ const api = {
       method: 'POST',
     });
   },
+
+  // Settings
+  getCoffeePrice() {
+    return this.request('/settings/coffee_price');
+  },
 };
 
 // ============================================
@@ -123,48 +129,31 @@ function renderUserList() {
 }
 
 function renderUserCard(user) {
-  const statusBadges = [];
-
-  // Pending payment badge
-  if (user.pendingPayment > 0) {
-    statusBadges.push(`
-      <span class="status-badge status-pending">
-        💰 Pending: €${user.pendingPayment.toFixed(2)}
-      </span>
-    `);
-  }
-
-  // Credit badge
-  if (user.accountBalance > 0) {
-    statusBadges.push(`
-      <span class="status-badge status-credit">
-        ✅ Credit: €${user.accountBalance.toFixed(2)}
-      </span>
-    `);
-  }
-
-  // Debt badge
-  if (user.accountBalance < 0) {
-    statusBadges.push(`
-      <span class="status-badge status-debt">
-        ⚠️ Debt: €${Math.abs(user.accountBalance).toFixed(2)}
-      </span>
-    `);
-  }
+  // Calculate current coffee tab (what user can still adjust with +/-)
+  const currentCoffeeAmount = user.coffeeCount * coffeePrice;
+  
+  // Total amount owed = current coffees + pending payment (already submitted but not confirmed)
+  const totalOwed = currentCoffeeAmount + (user.pendingPayment || 0);
+  const displayAmount = totalOwed.toFixed(2);
+  
+  // Show pending badge if there's an unconfirmed payment
+  const hasPending = user.pendingPayment > 0;
+  const pendingBadge = hasPending 
+    ? `<span class="status-badge status-pending">⏳ Pending</span>` 
+    : '';
 
   return `
     <div class="user-card" data-user-id="${user.id}">
       <div class="user-info">
         <div class="user-name">${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</div>
         <div class="user-email">${escapeHtml(user.email)}</div>
-        ${statusBadges.length > 0 ? `<div class="user-status">${statusBadges.join('')}</div>` : ''}
       </div>
       <div class="user-actions">
         <div class="coffee-counter">
           <button class="btn btn-counter btn-minus" data-action="decrement" data-user-id="${user.id}" ${user.coffeeCount <= 0 ? 'disabled' : ''}>
             −
           </button>
-          <span class="coffee-count">${user.coffeeCount}</span>
+          <span class="coffee-count">€${displayAmount}</span>
           <button class="btn btn-counter btn-plus" data-action="increment" data-user-id="${user.id}">
             +
           </button>
@@ -173,6 +162,9 @@ function renderUserCard(user) {
           <button class="btn btn-pay" data-action="pay" data-user-id="${user.id}" ${user.coffeeCount <= 0 ? 'disabled' : ''}>
             Pay
           </button>
+          <div class="user-status">
+            ${pendingBadge}
+          </div>
           <button class="btn btn-delete" data-action="delete" data-user-id="${user.id}" title="Delete">
             🗑️
           </button>
@@ -267,14 +259,13 @@ async function handlePayClick(e) {
 
   if (!user || user.coffeeCount <= 0) return;
 
-  // Calculate amount (rough estimate for confirmation)
-  const coffeePrice = 0.50; // Default, will be calculated server-side
-  const estimatedAmount = (user.coffeeCount * coffeePrice).toFixed(2);
+  // Calculate amount for confirmation
+  const amountToPay = (user.coffeeCount * coffeePrice).toFixed(2);
 
   showConfirmDialog({
     title: 'Confirm Payment Request',
-    message: `Send payment request for ${user.coffeeCount} coffee(s)?`,
-    details: `Estimated amount: €${estimatedAmount}`,
+    message: `Send payment request for €${amountToPay}?`,
+    details: 'You will receive an email with payment instructions.',
     confirmText: 'Send Request',
     onConfirm: async () => {
       try {
@@ -532,6 +523,14 @@ async function init() {
   elements.confirmModal.addEventListener('click', (e) => {
     if (e.target === elements.confirmModal) closeConfirmDialog();
   });
+
+  // Load coffee price first
+  try {
+    const priceData = await api.getCoffeePrice();
+    coffeePrice = priceData.coffeePrice;
+  } catch (error) {
+    console.warn('Failed to load coffee price, using default:', error.message);
+  }
 
   // Load initial data
   try {

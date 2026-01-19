@@ -4,22 +4,46 @@ const settingsService = require('./settingsService');
 
 // Create reusable transporter
 let transporter = null;
+let lastSmtpConfig = null;
+
+/**
+ * Get SMTP configuration from database settings (with env fallback)
+ */
+const getSmtpConfig = () => {
+  return {
+    host: settingsService.getSetting('smtp_host') || process.env.SMTP_HOST,
+    port: parseInt(settingsService.getSetting('smtp_port') || process.env.SMTP_PORT, 10) || 587,
+    secure: (settingsService.getSetting('smtp_secure') || process.env.SMTP_SECURE) === 'true',
+    user: settingsService.getSetting('smtp_user') || process.env.SMTP_USER,
+    pass: settingsService.getSetting('smtp_pass') || process.env.SMTP_PASS,
+    from: settingsService.getSetting('smtp_from') || process.env.SMTP_FROM || '"CofFeEL System" <coffee@example.com>',
+  };
+};
 
 /**
  * Get or create email transporter
+ * Recreates transporter if config has changed
  * @returns {Object} Nodemailer transporter
  */
 const getTransporter = () => {
-  if (!transporter) {
+  const config = getSmtpConfig();
+  const configKey = JSON.stringify({ host: config.host, port: config.port, user: config.user });
+  
+  // Recreate transporter if config changed
+  if (!transporter || lastSmtpConfig !== configKey) {
+    if (transporter) {
+      transporter.close();
+    }
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT, 10) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: config.user ? {
+        user: config.user,
+        pass: config.pass,
+      } : undefined,
     });
+    lastSmtpConfig = configKey;
   }
   return transporter;
 };
@@ -46,9 +70,10 @@ const sendPaymentRequest = async (user, coffeeCount, amount) => {
 
   try {
     const transport = getTransporter();
+    const smtpConfig = getSmtpConfig();
     
     const mailOptions = {
-      from: process.env.SMTP_FROM || '"CofFeEL System" <coffee@example.com>',
+      from: smtpConfig.from,
       to: user.email,
       cc: adminEmail,
       subject: `Coffee Payment Request - ${coffeeCount} coffees`,
@@ -220,6 +245,47 @@ const resetTransporter = () => {
   if (transporter) {
     transporter.close();
     transporter = null;
+    lastSmtpConfig = null;
+  }
+};
+
+/**
+ * Send a test email to verify SMTP configuration
+ * @param {string} toEmail - Email address to send test to
+ * @returns {Object} Result with success status
+ */
+const sendTestEmail = async (toEmail) => {
+  try {
+    const transport = getTransporter();
+    const smtpConfig = getSmtpConfig();
+    
+    if (!smtpConfig.host) {
+      return { success: false, error: 'SMTP host not configured' };
+    }
+
+    const mailOptions = {
+      from: smtpConfig.from,
+      to: toEmail,
+      subject: 'CofFeEL SMTP Test',
+      text: 'This is a test email from CofFeEL to verify your SMTP configuration is working correctly.',
+      html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h2>☕ CofFeEL SMTP Test</h2>
+          <p>This is a test email to verify your SMTP configuration is working correctly.</p>
+          <p style="color: #10b981;">✅ If you received this email, your SMTP settings are correct!</p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+          <p style="color: #6b7280; font-size: 12px;">Sent at: ${new Date().toISOString()}</p>
+        </div>
+      `,
+    };
+
+    const info = await transport.sendMail(mailOptions);
+    
+    logger.info('Test email sent', { to: toEmail, messageId: info.messageId });
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    logger.error('Test email failed', { error: err.message, to: toEmail });
+    return { success: false, error: err.message };
   }
 };
 
@@ -227,4 +293,5 @@ module.exports = {
   sendPaymentRequest,
   verifyConnection,
   resetTransporter,
+  sendTestEmail,
 };

@@ -16,7 +16,9 @@
         <h1 class="admin-logo">☕ CofFeEL <span>Admin</span></h1>
       </div>
       <div class="header-right">
+        <span class="admin-user" id="adminUserDisplay"></span>
         <a href="/" class="btn btn-secondary btn-sm">← Back to Kiosk</a>
+        <button class="btn btn-danger btn-sm" id="logoutBtn">Logout</button>
       </div>
     </header>
 
@@ -26,6 +28,7 @@
       <button class="nav-tab" data-tab="deleted-users">Deleted Users</button>
       <button class="nav-tab" data-tab="payments">Payment History</button>
       <button class="nav-tab" data-tab="settings">Settings</button>
+      <button class="nav-tab" data-tab="admin-users">Admin Users</button>
     </nav>
 
     <!-- Main Content -->
@@ -159,6 +162,45 @@
         </div>
       </section>
 
+      <!-- Admin Users Tab -->
+      <section class="tab-content" id="admin-users">
+        <div class="section-header">
+          <h2>Admin Users</h2>
+          <p class="section-description">Manage administrator accounts for the admin panel.</p>
+        </div>
+
+        <div class="add-admin-form">
+          <h3>Add New Admin</h3>
+          <form id="addAdminForm" class="inline-form">
+            <div class="form-group">
+              <label for="newAdminUsername">Username</label>
+              <input type="text" id="newAdminUsername" required minlength="3" placeholder="username">
+            </div>
+            <div class="form-group">
+              <label for="newAdminPassword">Password</label>
+              <input type="password" id="newAdminPassword" required minlength="4" placeholder="password">
+            </div>
+            <button type="submit" class="btn btn-primary">Add Admin</button>
+          </form>
+        </div>
+
+        <div class="user-table-container">
+          <table class="data-table" id="adminUsersTable">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Created</th>
+                <th>Last Login</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersBody">
+              <!-- Admin users will be rendered here -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Settings Tab -->
       <section class="tab-content" id="settings">
         <div class="section-header">
@@ -207,8 +249,46 @@
             </div>
           </div>
 
+          <div class="settings-group">
+            <h3>SMTP Server</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="smtpHost">SMTP Host</label>
+                <input type="text" id="smtpHost" name="smtp_host" placeholder="smtp.example.com" required>
+              </div>
+              <div class="form-group">
+                <label for="smtpPort">SMTP Port</label>
+                <input type="number" id="smtpPort" name="smtp_port" placeholder="587" min="1" max="65535" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="smtpUser">SMTP Username</label>
+                <input type="text" id="smtpUser" name="smtp_user" placeholder="user@example.com">
+              </div>
+              <div class="form-group">
+                <label for="smtpPass">SMTP Password</label>
+                <input type="password" id="smtpPass" name="smtp_pass" placeholder="••••••••">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="smtpSecure">Use TLS/SSL</label>
+                <select id="smtpSecure" name="smtp_secure">
+                  <option value="false">No (STARTTLS)</option>
+                  <option value="true">Yes (SSL/TLS)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="smtpFrom">From Address</label>
+                <input type="email" id="smtpFrom" name="smtp_from" placeholder="coffeel@example.com" required>
+              </div>
+            </div>
+          </div>
+
           <div class="form-actions">
             <button type="submit" class="btn btn-primary">Save Settings</button>
+            <button type="button" class="btn btn-secondary" id="testSmtpBtn">Test SMTP</button>
           </div>
         </form>
       </section>
@@ -272,6 +352,27 @@
         <div class="modal-actions">
           <button class="btn btn-secondary" id="genericConfirmCancel">Cancel</button>
           <button class="btn btn-danger" id="genericConfirmOk">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal-overlay" id="changePasswordModal">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2>Change Password</h2>
+          <button class="modal-close" id="closePasswordModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="passwordUserInfo"></p>
+          <div class="form-group">
+            <label for="newPassword">New Password</label>
+            <input type="password" id="newPassword" minlength="4" required placeholder="New password">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="cancelPassword">Cancel</button>
+          <button class="btn btn-primary" id="submitPassword">Change Password</button>
         </div>
       </div>
     </div>

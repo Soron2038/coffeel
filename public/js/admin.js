@@ -12,9 +12,12 @@ let activeUsers = [];
 let deletedUsers = [];
 let payments = [];
 let settings = {};
+let adminUsers = [];
 let currentPaymentUserId = null;
 let currentAdjustUserId = null;
+let currentPasswordUserId = null;
 let genericConfirmCallback = null;
+let currentAdminUser = null;
 
 // ============================================
 // DOM Elements
@@ -52,6 +55,13 @@ const elements = {
   bankIban: document.getElementById('bankIban'),
   bankBic: document.getElementById('bankBic'),
   adminEmail: document.getElementById('adminEmail'),
+  smtpHost: document.getElementById('smtpHost'),
+  smtpPort: document.getElementById('smtpPort'),
+  smtpUser: document.getElementById('smtpUser'),
+  smtpPass: document.getElementById('smtpPass'),
+  smtpSecure: document.getElementById('smtpSecure'),
+  smtpFrom: document.getElementById('smtpFrom'),
+  testSmtpBtn: document.getElementById('testSmtpBtn'),
 
   // Export
   exportCsvBtn: document.getElementById('exportCsvBtn'),
@@ -82,6 +92,24 @@ const elements = {
 
   // Toast
   toastContainer: document.getElementById('toastContainer'),
+
+  // Logout & Admin User Display
+  logoutBtn: document.getElementById('logoutBtn'),
+  adminUserDisplay: document.getElementById('adminUserDisplay'),
+
+  // Admin Users
+  adminUsersBody: document.getElementById('adminUsersBody'),
+  addAdminForm: document.getElementById('addAdminForm'),
+  newAdminUsername: document.getElementById('newAdminUsername'),
+  newAdminPassword: document.getElementById('newAdminPassword'),
+
+  // Change Password Modal
+  changePasswordModal: document.getElementById('changePasswordModal'),
+  closePasswordModal: document.getElementById('closePasswordModal'),
+  passwordUserInfo: document.getElementById('passwordUserInfo'),
+  newPassword: document.getElementById('newPassword'),
+  cancelPassword: document.getElementById('cancelPassword'),
+  submitPassword: document.getElementById('submitPassword'),
 };
 
 // ============================================
@@ -165,6 +193,38 @@ const api = {
       body: JSON.stringify({ value }),
     });
   },
+
+  // Admin Auth
+  getSession() {
+    return this.request('/admin/session');
+  },
+
+  logout() {
+    return this.request('/admin/logout', { method: 'POST' });
+  },
+
+  // Admin Users
+  getAdminUsers() {
+    return this.request('/admin/users');
+  },
+
+  createAdminUser(username, password) {
+    return this.request('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
+  changeAdminPassword(userId, password) {
+    return this.request(`/admin/users/${userId}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    });
+  },
+
+  deleteAdminUser(userId) {
+    return this.request(`/admin/users/${userId}`, { method: 'DELETE' });
+  },
 };
 
 // ============================================
@@ -185,6 +245,8 @@ function switchTab(tabId) {
     loadPayments();
   } else if (tabId === 'settings') {
     loadSettings();
+  } else if (tabId === 'admin-users') {
+    loadAdminUsers();
   }
 }
 
@@ -358,6 +420,16 @@ function populateSettingsForm() {
   if (settings.bank_iban) elements.bankIban.value = settings.bank_iban.value;
   if (settings.bank_bic) elements.bankBic.value = settings.bank_bic.value;
   if (settings.admin_email) elements.adminEmail.value = settings.admin_email.value;
+  // SMTP settings
+  if (settings.smtp_host) elements.smtpHost.value = settings.smtp_host.value;
+  if (settings.smtp_port) elements.smtpPort.value = settings.smtp_port.value;
+  if (settings.smtp_user) elements.smtpUser.value = settings.smtp_user.value;
+  // Don't populate password for security - show placeholder if set
+  if (settings.smtp_pass && settings.smtp_pass.value) {
+    elements.smtpPass.placeholder = '(unchanged)';
+  }
+  if (settings.smtp_secure) elements.smtpSecure.value = settings.smtp_secure.value;
+  if (settings.smtp_from) elements.smtpFrom.value = settings.smtp_from.value;
 }
 
 // ============================================
@@ -521,16 +593,47 @@ async function saveSettings(e) {
     bank_iban: elements.bankIban.value,
     bank_bic: elements.bankBic.value,
     admin_email: elements.adminEmail.value,
+    smtp_host: elements.smtpHost.value,
+    smtp_port: elements.smtpPort.value,
+    smtp_user: elements.smtpUser.value,
+    smtp_secure: elements.smtpSecure.value,
+    smtp_from: elements.smtpFrom.value,
   };
+
+  // Only update password if a new one was entered
+  if (elements.smtpPass.value) {
+    updates.smtp_pass = elements.smtpPass.value;
+  }
 
   try {
     for (const [key, value] of Object.entries(updates)) {
       await api.updateSetting(key, value);
     }
     showToast('Settings saved successfully', 'success');
+    elements.smtpPass.value = '';
     loadSettings();
   } catch (error) {
     showToast(error.message, 'error');
+  }
+}
+
+async function testSmtp() {
+  try {
+    elements.testSmtpBtn.disabled = true;
+    elements.testSmtpBtn.textContent = 'Testing...';
+    
+    const result = await api.request('/settings/test-smtp', { method: 'POST' });
+    
+    if (result.success) {
+      showToast('Test email sent successfully!', 'success');
+    } else {
+      showToast('Test failed: ' + (result.error || 'Unknown error'), 'error');
+    }
+  } catch (error) {
+    showToast('SMTP test failed: ' + error.message, 'error');
+  } finally {
+    elements.testSmtpBtn.disabled = false;
+    elements.testSmtpBtn.textContent = 'Test SMTP';
   }
 }
 
@@ -540,6 +643,127 @@ async function saveSettings(e) {
 
 function exportCsv() {
   window.location.href = '/api/export/csv';
+}
+
+// ============================================
+// Admin Users
+// ============================================
+
+async function loadAdminUsers() {
+  try {
+    adminUsers = await api.getAdminUsers();
+    renderAdminUsers();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+function renderAdminUsers() {
+  elements.adminUsersBody.innerHTML = adminUsers.map(user => `
+    <tr>
+      <td><strong>${escapeHtml(user.username)}</strong></td>
+      <td>${user.createdAt ? formatDate(user.createdAt) : '-'}</td>
+      <td>${user.lastLogin ? formatDate(user.lastLogin) : 'Never'}</td>
+      <td>
+        <button class="btn btn-secondary btn-xs" onclick="openPasswordModal(${user.id}, '${escapeHtml(user.username)}')">Change Password</button>
+        <button class="btn btn-danger btn-xs" onclick="confirmDeleteAdmin(${user.id}, '${escapeHtml(user.username)}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function addAdminUser(e) {
+  e.preventDefault();
+  
+  const username = elements.newAdminUsername.value.trim();
+  const password = elements.newAdminPassword.value;
+
+  if (!username || !password) {
+    showToast('Please fill in all fields', 'error');
+    return;
+  }
+
+  try {
+    await api.createAdminUser(username, password);
+    showToast(`Admin user '${username}' created`, 'success');
+    elements.addAdminForm.reset();
+    loadAdminUsers();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+function openPasswordModal(userId, username) {
+  currentPasswordUserId = userId;
+  elements.passwordUserInfo.textContent = `Change password for: ${username}`;
+  elements.newPassword.value = '';
+  elements.changePasswordModal.classList.add('active');
+  elements.newPassword.focus();
+}
+
+function closePasswordModal() {
+  elements.changePasswordModal.classList.remove('active');
+  currentPasswordUserId = null;
+}
+
+async function submitPasswordChange() {
+  if (!currentPasswordUserId) return;
+
+  const password = elements.newPassword.value;
+  if (!password || password.length < 4) {
+    showToast('Password must be at least 4 characters', 'error');
+    return;
+  }
+
+  try {
+    await api.changeAdminPassword(currentPasswordUserId, password);
+    showToast('Password changed successfully', 'success');
+    closePasswordModal();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+function confirmDeleteAdmin(userId, username) {
+  showGenericConfirm({
+    title: 'Delete Admin User',
+    message: `Are you sure you want to delete admin user '${username}'?`,
+    onConfirm: async () => {
+      try {
+        await api.deleteAdminUser(userId);
+        showToast(`Admin user '${username}' deleted`, 'success');
+        loadAdminUsers();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    },
+  });
+}
+
+// ============================================
+// Logout
+// ============================================
+
+async function handleLogout() {
+  try {
+    await api.logout();
+    window.location.href = '/login.html';
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+async function loadCurrentUser() {
+  try {
+    const session = await api.getSession();
+    if (session.loggedIn && session.user) {
+      currentAdminUser = session.user;
+      elements.adminUserDisplay.textContent = `Logged in as: ${session.user.username}`;
+    }
+  } catch (error) {
+    // Redirect to login if session check fails
+    window.location.href = '/login.html';
+  }
 }
 
 // ============================================
@@ -642,11 +866,25 @@ function init() {
 
   // Settings form
   elements.settingsForm.addEventListener('submit', saveSettings);
+  elements.testSmtpBtn.addEventListener('click', testSmtp);
 
   // Export
   elements.exportCsvBtn.addEventListener('click', exportCsv);
 
+  // Logout
+  elements.logoutBtn.addEventListener('click', handleLogout);
+
+  // Admin user management
+  elements.addAdminForm.addEventListener('submit', addAdminUser);
+  elements.closePasswordModal.addEventListener('click', closePasswordModal);
+  elements.cancelPassword.addEventListener('click', closePasswordModal);
+  elements.submitPassword.addEventListener('click', submitPasswordChange);
+  elements.changePasswordModal.addEventListener('click', (e) => {
+    if (e.target === elements.changePasswordModal) closePasswordModal();
+  });
+
   // Initial load
+  loadCurrentUser();
   loadUsers();
 }
 
@@ -656,6 +894,8 @@ window.openAdjustModal = openAdjustModal;
 window.restoreUser = restoreUser;
 window.confirmPermanentDelete = confirmPermanentDelete;
 window.sendPaymentRequest = sendPaymentRequest;
+window.openPasswordModal = openPasswordModal;
+window.confirmDeleteAdmin = confirmDeleteAdmin;
 
 // Start
 document.addEventListener('DOMContentLoaded', init);

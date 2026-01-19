@@ -82,6 +82,17 @@ body {
   opacity: 0.7;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-user {
+  font-size: 13px;
+  color: var(--color-gray-400);
+}
+
 /* ============================================
    Navigation
    ============================================ */
@@ -439,6 +450,11 @@ body {
   font-size: 13px;
 }
 
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 .btn-primary {
   background: var(--color-primary);
   color: var(--color-white);
@@ -653,6 +669,41 @@ body {
 /* ============================================
    Responsive
    ============================================ */
+
+/* ============================================
+   Admin User Management
+   ============================================ */
+
+.add-admin-form {
+  background: var(--color-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.add-admin-form h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-gray-800);
+}
+
+.inline-form {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.inline-form .form-group {
+  flex: 1;
+  min-width: 150px;
+}
+
+.inline-form .btn {
+  height: 40px;
+}
 
 @media (max-width: 768px) {
   .admin-header {
