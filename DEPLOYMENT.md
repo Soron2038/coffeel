@@ -2,36 +2,63 @@
 
 This guide covers deploying CofFeEL to an Ubuntu server with Nginx, PM2, SSL, and automated backups.
 
+**Current Production Server:** `cfelm-pcx65344.desy.de` (131.169.224.146)
+
 ## Prerequisites
 
-- Ubuntu 22.04 LTS or newer
-- Root or sudo access
-- Domain name (optional, for SSL)
+- Ubuntu 22.04 LTS or newer (tested on Ubuntu 24.04.3 LTS)
+- SSH access with sudo privileges
+- Node.js 20.x LTS, PM2, Nginx
 - SMTP credentials for email sending
+- Domain name (optional, for SSL)
 
-## 1. Server Setup
+## Quick Deploy (Existing Server)
 
-### Update System
+If the server is already set up, use this one-liner from your development machine:
+
+```bash
+rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
+  /path/to/coffeel/ user@server:/opt/coffeel/ && \
+  ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
+```
+
+Or step by step:
+
+```bash
+# 1. Sync files (excludes data and config)
+rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
+  /path/to/coffeel/ user@server:/opt/coffeel/
+
+# 2. Install dependencies and restart
+ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
+```
+
+---
+
+## Fresh Server Setup
+
+### 1. Update System
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
 
-### Install Node.js 20.x LTS
+### 2. Install Node.js 20.x LTS
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 node --version  # Should show v20.x.x
+npm --version   # Should show 10.x.x
 ```
 
-### Install Build Tools (for native modules)
+### 3. Install Build Tools (for native modules)
 
 ```bash
 sudo apt install -y build-essential python3
 ```
 
-### Install Nginx
+### 4. Install Nginx
 
 ```bash
 sudo apt install -y nginx
@@ -39,40 +66,48 @@ sudo systemctl enable nginx
 sudo systemctl start nginx
 ```
 
-### Install PM2 (Process Manager)
+### 5. Install PM2 (Process Manager)
 
 ```bash
 sudo npm install -g pm2
+pm2 --version
 ```
 
-## 2. Application Setup
+## Application Setup
 
-### Create Application User
+### Create Application Directory
 
 ```bash
-sudo useradd -m -s /bin/bash coffeel
 sudo mkdir -p /opt/coffeel
-sudo chown coffeel:coffeel /opt/coffeel
+sudo chown $USER:$USER /opt/coffeel
 ```
 
-### Clone Repository
+### Option A: Clone from GitHub
 
 ```bash
-sudo -u coffeel git clone https://github.com/Soron2038/coffeel.git /opt/coffeel
+git clone https://github.com/Soron2038/coffeel.git /opt/coffeel
 cd /opt/coffeel
+```
+
+### Option B: Transfer via rsync (from development machine)
+
+```bash
+rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' \
+  /path/to/local/coffeel/ user@server:/opt/coffeel/
 ```
 
 ### Install Dependencies
 
 ```bash
-sudo -u coffeel npm ci --production
+cd /opt/coffeel
+npm install --production
 ```
 
 ### Configure Environment
 
 ```bash
-sudo -u coffeel cp .env.example .env
-sudo nano /opt/coffeel/.env
+cp .env.example .env
+nano .env
 ```
 
 Edit `.env` with production values:
@@ -80,16 +115,12 @@ Edit `.env` with production values:
 ```env
 NODE_ENV=production
 PORT=3000
-HOST=127.0.0.1
+HOST=0.0.0.0
 
-# Admin credentials (use strong password!)
-ADMIN_USER=admin
-ADMIN_PASS=your-secure-password-here
+# Database (created automatically)
+DB_PATH=./data/coffee.db
 
-# Database
-DATABASE_PATH=/opt/coffeel/data/coffee.db
-
-# SMTP (use your actual mail server)
+# SMTP (configure in Admin Panel or here)
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -102,31 +133,55 @@ BANK_IBAN=DE89370400440532013000
 BANK_BIC=COBADEFFXXX
 BANK_OWNER="CFEL Coffee Fund"
 
-# Settings
+# Initial settings (can be changed in Admin Panel)
 COFFEE_PRICE=0.50
-ADMIN_EMAIL=admin@cfel.de
+ADMIN_EMAIL=admin@example.com
 ```
 
 ### Initialize Database
 
 ```bash
-sudo -u coffeel npm run db:init
+npm run db:init
 ```
 
-### Set Permissions
+This creates the SQLite database with schema and a default admin user: `admin` / `admin`
+
+**Important:** Change the admin password immediately after first login!
+
+### Set Permissions (optional, for stricter security)
 
 ```bash
-sudo chown -R coffeel:coffeel /opt/coffeel
-sudo chmod 600 /opt/coffeel/.env
+chmod 600 .env
 ```
 
-## 3. PM2 Configuration
+## PM2 Configuration
 
-### Create Ecosystem File
+### Start Application (Simple Method)
 
 ```bash
-sudo -u coffeel nano /opt/coffeel/ecosystem.config.js
+cd /opt/coffeel
+pm2 start src/server.js --name coffeel
+pm2 save
 ```
+
+### Setup PM2 Startup (survives reboot)
+
+```bash
+pm2 startup
+# Follow the instructions printed by this command (copy & run the sudo line)
+pm2 save
+```
+
+### Verify Application
+
+```bash
+pm2 status
+curl http://localhost:3000/api/users
+```
+
+### Alternative: Ecosystem File (optional)
+
+For more control, create `ecosystem.config.js`:
 
 ```javascript
 module.exports = {
@@ -141,34 +196,13 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
     },
-    error_file: '/var/log/coffeel/error.log',
-    out_file: '/var/log/coffeel/out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
   }],
 };
 ```
 
-### Create Log Directory
+Then start with: `pm2 start ecosystem.config.js`
 
-```bash
-sudo mkdir -p /var/log/coffeel
-sudo chown coffeel:coffeel /var/log/coffeel
-```
-
-### Start Application
-
-```bash
-sudo -u coffeel pm2 start /opt/coffeel/ecosystem.config.js
-sudo -u coffeel pm2 save
-```
-
-### Setup PM2 Startup
-
-```bash
-sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u coffeel --hp /home/coffeel
-```
-
-## 4. Nginx Configuration
+## Nginx Configuration
 
 ### Create Site Config
 
@@ -179,45 +213,45 @@ sudo nano /etc/nginx/sites-available/coffeel
 ```nginx
 server {
     listen 80;
-    server_name coffeel.example.com;  # Replace with your domain
-
-    # Redirect to HTTPS (uncomment after SSL setup)
-    # return 301 https://$server_name$request_uri;
+    server_name _;  # Accept any hostname (or replace with your domain)
 
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
     }
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml;
 }
 ```
 
 ### Enable Site
 
 ```bash
+# Create symlink
 sudo ln -s /etc/nginx/sites-available/coffeel /etc/nginx/sites-enabled/
+
+# Remove default site (optional)
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Test and reload
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 5. SSL Certificate (Let's Encrypt)
+## Accessing the Application
+
+- **Kiosk UI:** `http://your-server-ip/`
+- **Admin Panel:** `http://your-server-ip/admin.html`
+
+Default admin credentials: `admin` / `admin` — **Change immediately!**
+
+---
+
+## SSL Certificate (Let's Encrypt)
 
 ### Install Certbot
 
@@ -332,51 +366,59 @@ curl http://localhost:3000/api/health
 3. Set interval: 5 minutes
 4. Add email alert
 
-## 9. Updating the Application
+## Updating the Application
+
+### From Development Machine (recommended)
+
+```bash
+# One-liner deploy
+rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
+  /path/to/coffeel/ user@server:/opt/coffeel/ && \
+  ssh user@server "pm2 restart coffeel"
+```
+
+### On Server (git pull)
 
 ```bash
 cd /opt/coffeel
 
-# Stop application
-sudo -u coffeel pm2 stop coffeel
-
 # Create backup first!
-sudo -u coffeel /opt/coffeel/scripts/daily-backup.sh
+cp data/coffee.db data/coffee_backup_$(date +%Y%m%d).db
 
 # Pull updates
-sudo -u coffeel git pull
+git pull
 
-# Install dependencies
-sudo -u coffeel npm ci --production
-
-# Run migrations (if any)
-# sudo -u coffeel npm run db:migrate
+# Install dependencies (if package.json changed)
+npm install --production
 
 # Restart application
-sudo -u coffeel pm2 restart coffeel
+pm2 restart coffeel
 ```
 
-## 10. Useful Commands
+## Useful Commands
 
 ```bash
 # Application
-sudo -u coffeel pm2 status           # Check status
-sudo -u coffeel pm2 logs coffeel     # View logs
-sudo -u coffeel pm2 restart coffeel  # Restart
-sudo -u coffeel pm2 stop coffeel     # Stop
+pm2 status                  # Check status
+pm2 logs coffeel            # View logs (Ctrl+C to exit)
+pm2 logs coffeel --lines 50 # Last 50 lines
+pm2 restart coffeel         # Restart
+pm2 stop coffeel            # Stop
+pm2 monit                   # Real-time monitoring
 
 # Nginx
-sudo systemctl status nginx          # Check Nginx
-sudo nginx -t                        # Test config
-sudo systemctl reload nginx          # Reload config
+sudo systemctl status nginx # Check Nginx status
+sudo nginx -t               # Test config
+sudo systemctl reload nginx # Reload config
 
 # Database
-sqlite3 /opt/coffeel/data/coffee.db  # Open database
-npm run db:backup                    # Manual backup
+sqlite3 /opt/coffeel/data/coffee.db  # Open database shell
+npm run db:backup           # Create backup
 
 # Logs
-tail -f /var/log/coffeel/out.log     # Application logs
-tail -f /var/log/nginx/access.log    # Nginx access logs
+pm2 logs coffeel                          # PM2 logs
+sudo tail -f /var/log/nginx/access.log    # Nginx access
+sudo tail -f /var/log/nginx/error.log     # Nginx errors
 ```
 
 ## Troubleshooting
@@ -385,20 +427,24 @@ tail -f /var/log/nginx/access.log    # Nginx access logs
 
 ```bash
 # Check logs
-sudo -u coffeel pm2 logs coffeel --lines 100
+pm2 logs coffeel --lines 100
 
 # Check if port is in use
 sudo lsof -i:3000
 
-# Verify environment
-sudo -u coffeel cat /opt/coffeel/.env
+# Verify Node version (must be 20.x)
+node --version
+
+# Verify .env exists
+cat /opt/coffeel/.env
 ```
 
 ### 502 Bad Gateway
 
-1. Check if PM2 is running: `sudo -u coffeel pm2 status`
-2. Check Nginx config: `sudo nginx -t`
-3. Verify proxy_pass port matches application port
+1. Check if PM2 is running: `pm2 status`
+2. Test app directly: `curl http://localhost:3000/api/users`
+3. Check Nginx config: `sudo nginx -t`
+4. Check Nginx error log: `sudo tail /var/log/nginx/error.log`
 
 ### SSL Issues
 
@@ -431,9 +477,28 @@ cp /opt/coffeel/backups/coffee_LATEST.db /opt/coffeel/data/coffee.db
 - [ ] Nginx security headers enabled
 - [ ] Server updates automated
 
+## Architecture Overview
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Browser   │────▶│    Nginx    │────▶│   Node.js   │
+│  (iPad/PC)  │     │   (Port 80) │     │ (Port 3000) │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                                        ┌──────▼──────┐
+                                        │   SQLite    │
+                                        │  Database   │
+                                        └─────────────┘
+```
+
+- **Nginx**: Reverse proxy, handles SSL termination
+- **Node.js/Express**: Application server (managed by PM2)
+- **SQLite**: Embedded database (file-based, no separate server)
+- **PM2**: Process manager with auto-restart and log management
+
 ## Support
 
 For issues, check:
 1. PM2 logs: `pm2 logs coffeel`
-2. Nginx error logs: `/var/log/nginx/error.log`
-3. Application health: `curl localhost:3000/api/health`
+2. Nginx error logs: `sudo tail /var/log/nginx/error.log`
+3. Application health: `curl localhost:3000/api/users`
