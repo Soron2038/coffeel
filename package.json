@@ -1,0 +1,46 @@
+{
+  "name": "coffeel",
+  "version": "1.0.0",
+  "description": "Coffee tracking system for CFEL - iPad kiosk mode",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "db:init": "node src/db/init.js",
+    "db:seed": "node src/db/seed.js",
+    "db:backup": "node src/db/backup.js",
+    "db:restore": "node src/db/restore.js",
+    "db:migrate": "node src/db/migrate.js",
+    "test": "node --test tests/**/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
+    "lint": "eslint src/ public/js/ tests/",
+    "lint:fix": "eslint src/ public/js/ tests/ --fix",
+    "format": "prettier --write \"src/**/*.js\" \"public/**/*.{js,css,html}\" \"tests/**/*.js\""
+  },
+  "keywords": [
+    "coffee",
+    "tracking",
+    "kiosk",
+    "ipad",
+    "payment"
+  ],
+  "author": "Björn",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "nodemailer": "^6.9.17"
+  },
+  "devDependencies": {
+    "eslint": "^9.18.0",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.4.2"
+  }
+}
