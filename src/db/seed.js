@@ -22,7 +22,7 @@ async function seedDatabase() {
     ];
     
     const insertUser = db.prepare(`
-      INSERT INTO users (first_name, last_name, email, coffee_count)
+      INSERT OR IGNORE INTO users (first_name, last_name, email, coffee_count)
       VALUES (?, ?, ?, ?)
     `);
     
