@@ -1,6 +1,5 @@
 /**
  * CofFeEL Admin Panel
- * Vanilla JavaScript for admin management interface
  */
 
 // ============================================
@@ -13,11 +12,9 @@ let deletedUsers = [];
 let payments = [];
 let settings = {};
 let adminUsers = [];
-let currentPaymentUserId = null;
-let currentAdjustUserId = null;
-let currentPasswordUserId = null;
 let genericConfirmCallback = null;
 let currentAdminUser = null;
+let currentModalUserId = null; // Shared across modals
 
 // ============================================
 // DOM Elements
@@ -313,41 +310,41 @@ function updateSummary() {
 // Render Functions
 // ============================================
 
+// Render user row (shared between active/deleted tables)
+function renderUserRow(user, isDeleted) {
+  const name = `<strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong>`;
+  const pendingClass = user.pendingPayment > 0 ? 'pending-amount' : '';
+  const dateCol = isDeleted 
+    ? (user.deletedAt ? formatDate(user.deletedAt) : '-')
+    : (user.lastPaymentRequest ? formatDate(user.lastPaymentRequest) : '-');
+  
+  const actions = isDeleted ? `
+    <button class="btn btn-primary btn-sm" onclick="restoreUser(${user.id})">Restore</button>
+    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 ? 'disabled' : ''}>Confirm Payment</button>
+    <button class="btn btn-danger btn-sm" onclick="confirmPermanentDelete(${user.id})">Delete</button>
+  ` : `
+    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 && user.coffeeCount <= 0 ? 'disabled' : ''}>Confirm Payment</button>
+    <button class="btn btn-outline btn-sm" onclick="openAdjustModal(${user.id})">Adjust</button>
+    ${user.coffeeCount > 0 ? `<button class="btn btn-warning btn-sm" onclick="sendPaymentRequest(${user.id})">Send Request</button>` : ''}
+  `;
+
+  return `<tr data-user-id="${user.id}">
+    <td>${name}</td>
+    <td>${escapeHtml(user.email)}</td>
+    <td>${user.coffeeCount}</td>
+    <td class="${pendingClass}">${formatPending(user.pendingPayment)}</td>
+    <td class="${getBalanceClass(user.accountBalance)}">${formatBalance(user.accountBalance)}</td>
+    <td>${dateCol}</td>
+    <td><div class="action-btns">${actions}</div></td>
+  </tr>`;
+}
+
 function renderActiveUsers() {
   if (activeUsers.length === 0) {
     elements.activeUsersBody.innerHTML = '<tr><td colspan="7" class="empty-message">No active users found.</td></tr>';
     return;
   }
-
-  elements.activeUsersBody.innerHTML = activeUsers.map(user => `
-    <tr data-user-id="${user.id}">
-      <td><strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong></td>
-      <td>${escapeHtml(user.email)}</td>
-      <td>${user.coffeeCount}</td>
-      <td class="${user.pendingPayment > 0 ? 'pending-amount' : ''}">
-        ${user.pendingPayment > 0 ? `€${user.pendingPayment.toFixed(2)}` : '-'}
-      </td>
-      <td class="${getBalanceClass(user.accountBalance)}">
-        ${formatBalance(user.accountBalance)}
-      </td>
-      <td>${user.lastPaymentRequest ? formatDate(user.lastPaymentRequest) : '-'}</td>
-      <td>
-        <div class="action-btns">
-          <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 && user.coffeeCount <= 0 ? 'disabled' : ''}>
-            Confirm Payment
-          </button>
-          <button class="btn btn-outline btn-sm" onclick="openAdjustModal(${user.id})">
-            Adjust
-          </button>
-          ${user.coffeeCount > 0 ? `
-            <button class="btn btn-warning btn-sm" onclick="sendPaymentRequest(${user.id})">
-              Send Request
-            </button>
-          ` : ''}
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  elements.activeUsersBody.innerHTML = activeUsers.map(u => renderUserRow(u, false)).join('');
 }
 
 function renderDeletedUsers() {
@@ -356,35 +353,8 @@ function renderDeletedUsers() {
     elements.noDeletedUsers.style.display = 'block';
     return;
   }
-
   elements.noDeletedUsers.style.display = 'none';
-  elements.deletedUsersBody.innerHTML = deletedUsers.map(user => `
-    <tr data-user-id="${user.id}">
-      <td><strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong></td>
-      <td>${escapeHtml(user.email)}</td>
-      <td>${user.coffeeCount}</td>
-      <td class="${user.pendingPayment > 0 ? 'pending-amount' : ''}">
-        ${user.pendingPayment > 0 ? `€${user.pendingPayment.toFixed(2)}` : '-'}
-      </td>
-      <td class="${getBalanceClass(user.accountBalance)}">
-        ${formatBalance(user.accountBalance)}
-      </td>
-      <td>${user.deletedAt ? formatDate(user.deletedAt) : '-'}</td>
-      <td>
-        <div class="action-btns">
-          <button class="btn btn-primary btn-sm" onclick="restoreUser(${user.id})">
-            Restore
-          </button>
-          <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 ? 'disabled' : ''}>
-            Confirm Payment
-          </button>
-          <button class="btn btn-danger btn-sm" onclick="confirmPermanentDelete(${user.id})">
-            Delete
-          </button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  elements.deletedUsersBody.innerHTML = deletedUsers.map(u => renderUserRow(u, true)).join('');
 }
 
 function renderPayments() {
@@ -415,21 +385,17 @@ function renderPayments() {
 }
 
 function populateSettingsForm() {
-  if (settings.coffee_price) elements.coffeePrice.value = settings.coffee_price.value;
-  if (settings.bank_owner) elements.bankOwner.value = settings.bank_owner.value;
-  if (settings.bank_iban) elements.bankIban.value = settings.bank_iban.value;
-  if (settings.bank_bic) elements.bankBic.value = settings.bank_bic.value;
-  if (settings.admin_email) elements.adminEmail.value = settings.admin_email.value;
-  // SMTP settings
-  if (settings.smtp_host) elements.smtpHost.value = settings.smtp_host.value;
-  if (settings.smtp_port) elements.smtpPort.value = settings.smtp_port.value;
-  if (settings.smtp_user) elements.smtpUser.value = settings.smtp_user.value;
-  // Don't populate password for security - show placeholder if set
-  if (settings.smtp_pass && settings.smtp_pass.value) {
-    elements.smtpPass.placeholder = '(unchanged)';
-  }
-  if (settings.smtp_secure) elements.smtpSecure.value = settings.smtp_secure.value;
-  if (settings.smtp_from) elements.smtpFrom.value = settings.smtp_from.value;
+  // Map setting keys to form elements
+  const mappings = [
+    ['coffee_price', elements.coffeePrice], ['bank_owner', elements.bankOwner],
+    ['bank_iban', elements.bankIban], ['bank_bic', elements.bankBic],
+    ['admin_email', elements.adminEmail], ['smtp_host', elements.smtpHost],
+    ['smtp_port', elements.smtpPort], ['smtp_user', elements.smtpUser],
+    ['smtp_secure', elements.smtpSecure], ['smtp_from', elements.smtpFrom],
+  ];
+  mappings.forEach(([key, el]) => setSettingValue(el, key));
+  // Password: show placeholder if set (don't expose actual value)
+  if (settings.smtp_pass?.value) elements.smtpPass.placeholder = '(unchanged)';
 }
 
 // ============================================
@@ -441,15 +407,12 @@ async function restoreUser(userId) {
     await api.restoreUser(userId);
     showToast('User restored successfully', 'success');
     loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 function confirmPermanentDelete(userId) {
-  const user = allUsers.find(u => u.id === userId);
+  const user = findUser(userId);
   if (!user) return;
-
   showGenericConfirm({
     title: 'Permanently Delete User?',
     message: `This will permanently delete "${user.firstName} ${user.lastName}" and all their payment history. This cannot be undone.`,
@@ -458,9 +421,7 @@ function confirmPermanentDelete(userId) {
         await api.deleteUserPermanent(userId);
         showToast('User permanently deleted', 'success');
         loadUsers();
-      } catch (error) {
-        showToast(error.message, 'error');
-      }
+      } catch (error) { showToast(error.message, 'error'); }
     },
   });
 }
@@ -470,9 +431,7 @@ async function sendPaymentRequest(userId) {
     const result = await api.requestPayment(userId);
     showToast(result.message, result.emailSent ? 'success' : 'warning');
     loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 // ============================================
@@ -480,41 +439,27 @@ async function sendPaymentRequest(userId) {
 // ============================================
 
 function openPaymentModal(userId) {
-  const user = allUsers.find(u => u.id === userId);
+  const user = findUser(userId);
   if (!user) return;
-
-  currentPaymentUserId = userId;
+  currentModalUserId = userId;
   elements.paymentUserInfo.textContent = `${user.firstName} ${user.lastName} - Pending: €${user.pendingPayment.toFixed(2)}`;
   elements.paymentAmount.value = user.pendingPayment > 0 ? user.pendingPayment.toFixed(2) : '';
   elements.paymentNotes.value = '';
-  elements.confirmPaymentModal.classList.add('active');
-  elements.paymentAmount.focus();
+  openModal(elements.confirmPaymentModal, elements.paymentAmount);
 }
 
-function closePaymentModal() {
-  elements.confirmPaymentModal.classList.remove('active');
-  currentPaymentUserId = null;
-}
+function closePaymentModal() { closeModal(elements.confirmPaymentModal); }
 
 async function submitPaymentConfirmation() {
-  if (!currentPaymentUserId) return;
-
+  if (!currentModalUserId) return;
   const amount = parseFloat(elements.paymentAmount.value);
-  const notes = elements.paymentNotes.value.trim();
-
-  if (isNaN(amount) || amount <= 0) {
-    showToast('Please enter a valid amount', 'error');
-    return;
-  }
-
+  if (isNaN(amount) || amount <= 0) return showToast('Please enter a valid amount', 'error');
   try {
-    const result = await api.confirmPayment(currentPaymentUserId, amount, notes);
+    const result = await api.confirmPayment(currentModalUserId, amount, elements.paymentNotes.value.trim());
     showToast(result.message, 'success');
     closePaymentModal();
     loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 // ============================================
@@ -522,39 +467,26 @@ async function submitPaymentConfirmation() {
 // ============================================
 
 function openAdjustModal(userId) {
-  const user = allUsers.find(u => u.id === userId);
+  const user = findUser(userId);
   if (!user) return;
-
-  currentAdjustUserId = userId;
+  currentModalUserId = userId;
   elements.adjustUserInfo.textContent = `${user.firstName} ${user.lastName} - Current: ${user.coffeeCount} coffees`;
   elements.newCoffeeCount.value = user.coffeeCount;
-  elements.adjustCoffeeModal.classList.add('active');
-  elements.newCoffeeCount.focus();
+  openModal(elements.adjustCoffeeModal, elements.newCoffeeCount);
 }
 
-function closeAdjustModal() {
-  elements.adjustCoffeeModal.classList.remove('active');
-  currentAdjustUserId = null;
-}
+function closeAdjustModal() { closeModal(elements.adjustCoffeeModal); }
 
 async function submitCoffeeAdjustment() {
-  if (!currentAdjustUserId) return;
-
+  if (!currentModalUserId) return;
   const count = parseInt(elements.newCoffeeCount.value, 10);
-
-  if (isNaN(count) || count < 0) {
-    showToast('Please enter a valid count', 'error');
-    return;
-  }
-
+  if (isNaN(count) || count < 0) return showToast('Please enter a valid count', 'error');
   try {
-    await api.setCoffeeCount(currentAdjustUserId, count);
+    await api.setCoffeeCount(currentModalUserId, count);
     showToast('Coffee count updated', 'success');
     closeAdjustModal();
     loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 // ============================================
@@ -694,34 +626,23 @@ async function addAdminUser(e) {
 }
 
 function openPasswordModal(userId, username) {
-  currentPasswordUserId = userId;
+  currentModalUserId = userId;
   elements.passwordUserInfo.textContent = `Change password for: ${username}`;
   elements.newPassword.value = '';
-  elements.changePasswordModal.classList.add('active');
-  elements.newPassword.focus();
+  openModal(elements.changePasswordModal, elements.newPassword);
 }
 
-function closePasswordModal() {
-  elements.changePasswordModal.classList.remove('active');
-  currentPasswordUserId = null;
-}
+function closePasswordModal() { closeModal(elements.changePasswordModal); }
 
 async function submitPasswordChange() {
-  if (!currentPasswordUserId) return;
-
+  if (!currentModalUserId) return;
   const password = elements.newPassword.value;
-  if (!password || password.length < 4) {
-    showToast('Password must be at least 4 characters', 'error');
-    return;
-  }
-
+  if (!password || password.length < 4) return showToast('Password must be at least 4 characters', 'error');
   try {
-    await api.changeAdminPassword(currentPasswordUserId, password);
+    await api.changeAdminPassword(currentModalUserId, password);
     showToast('Password changed successfully', 'success');
     closePasswordModal();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+  } catch (error) { showToast(error.message, 'error'); }
 }
 
 function confirmDeleteAdmin(userId, username) {
@@ -733,9 +654,7 @@ function confirmDeleteAdmin(userId, username) {
         await api.deleteAdminUser(userId);
         showToast(`Admin user '${username}' deleted`, 'success');
         loadAdminUsers();
-      } catch (error) {
-        showToast(error.message, 'error');
-      }
+      } catch (error) { showToast(error.message, 'error'); }
     },
   });
 }
@@ -777,49 +696,55 @@ function escapeHtml(text) {
 }
 
 function formatDate(dateString) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  return new Date(dateString).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 }
 
 function formatBalance(balance) {
   if (balance === 0) return '€0.00';
-  const sign = balance > 0 ? '+' : '';
-  return `${sign}€${balance.toFixed(2)}`;
+  return `${balance > 0 ? '+' : ''}€${balance.toFixed(2)}`;
 }
 
 function getBalanceClass(balance) {
-  if (balance > 0) return 'balance-positive';
-  if (balance < 0) return 'balance-negative';
-  return 'balance-zero';
+  return balance > 0 ? 'balance-positive' : balance < 0 ? 'balance-negative' : 'balance-zero';
 }
 
 function showToast(message, type = 'info') {
-  const icons = {
-    success: '✅',
-    error: '❌',
-    warning: '⚠️',
-    info: 'ℹ️',
-  };
-
+  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${icons[type]}</span>
-    <span class="toast-message">${escapeHtml(message)}</span>
-  `;
-
+  toast.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-message">${escapeHtml(message)}</span>`;
   elements.toastContainer.appendChild(toast);
+  setTimeout(() => { toast.classList.add('removing'); setTimeout(() => toast.remove(), 200); }, 3000);
+}
 
-  setTimeout(() => {
-    toast.classList.add('removing');
-    setTimeout(() => toast.remove(), 200);
-  }, 3000);
+// Find user by ID, show error toast if not found
+function findUser(userId) {
+  const user = allUsers.find(u => u.id === userId);
+  if (!user) showToast('User not found', 'error');
+  return user;
+}
+
+// Generic modal helpers
+function openModal(modal, focusElement) {
+  modal.classList.add('active');
+  if (focusElement) focusElement.focus();
+}
+
+function closeModal(modal) {
+  modal.classList.remove('active');
+  currentModalUserId = null;
+}
+
+// Format pending payment display
+function formatPending(amount) {
+  return amount > 0 ? `€${amount.toFixed(2)}` : '-';
+}
+
+// Set setting value if exists
+function setSettingValue(element, settingKey) {
+  if (settings[settingKey]) element.value = settings[settingKey].value;
 }
 
 // ============================================
