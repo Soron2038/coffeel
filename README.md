@@ -115,6 +115,96 @@ HTTP Basic Auth using credentials from `.env`:
 - Username: `ADMIN_USER`
 - Password: `ADMIN_PASS`
 
+### Tabs
+
+1. **Active Users**: View all active users, confirm payments, adjust coffee counts
+2. **Deleted Users**: View soft-deleted users, restore them, confirm pending payments
+3. **Payment History**: Filterable list of all payment transactions, export to CSV
+4. **Settings**: Manage coffee price, bank details, admin email
+
+### Admin Actions
+
+- **Confirm Payment**: Enter amount received, reduces pending payment, increases balance
+- **Adjust Coffee Count**: Manually set coffee count for a user
+- **Send Payment Request**: Trigger payment email for users with outstanding coffees
+- **Restore User**: Reactivate soft-deleted user
+- **Permanent Delete**: Remove user and all history (use with caution)
+- **Export CSV**: Download all user and payment data
+
+## 📡 API Reference
+
+### Base URL
+
+```
+http://localhost:3000/api
+```
+
+### User Endpoints
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/users` | List all users | No |
+| GET | `/users?includeDeleted=true` | Include soft-deleted users | No |
+| GET | `/users/:id` | Get single user | No |
+| POST | `/users` | Create new user | No |
+| DELETE | `/users/:id` | Soft delete user | No |
+| POST | `/users/:id/restore` | Restore deleted user | Admin |
+| DELETE | `/users/:id/permanent` | Hard delete user | Admin |
+
+### Coffee Tracking
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/users/:id/increment` | Add one coffee | No |
+| POST | `/users/:id/decrement` | Remove one coffee | No |
+| PUT | `/users/:id/coffee-count` | Set coffee count | Admin |
+
+### Payments
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/users/:id/pay` | Request payment (send email) | No |
+| POST | `/users/:id/confirm-payment` | Confirm payment received | Admin |
+| GET | `/payments` | Get payment history | Admin |
+| GET | `/payments/summary` | Get payment statistics | Admin |
+
+### Settings
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/settings` | Get all settings | Admin |
+| PUT | `/settings/:key` | Update a setting | Admin |
+
+### Export
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/export/csv` | Export all data as CSV | Admin |
+| GET | `/export/json` | Export all data as JSON | Admin |
+
+### Health Check
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/health` | Server health status | No |
+
+### Request/Response Examples
+
+**Create User:**
+```bash
+curl -X POST http://localhost:3000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"firstName": "John", "lastName": "Doe", "email": "john@example.com"}'
+```
+
+**Confirm Payment (Admin):**
+```bash
+curl -X POST http://localhost:3000/api/users/1/confirm-payment \
+  -u admin:password \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 5.00, "notes": "Bank transfer received"}'
+```
+
 ## 💾 Database Schema
 
 ### users
@@ -163,6 +253,47 @@ npm run lint       # Run ESLint
 - Prepared statements (SQL injection prevention)
 - Rate limiting: 60 requests/minute per IP
 - Input validation on client and server
+
+## 🚨 Troubleshooting
+
+### Server won't start
+
+1. Check if port 3000 is already in use: `lsof -i:3000`
+2. Verify Node.js version: `node --version` (should be 20.x+)
+3. Check `.env` file exists and is properly configured
+4. Try removing `node_modules` and reinstalling: `rm -rf node_modules && npm install`
+
+### Database errors
+
+1. Reset database: `npm run db:init`
+2. Check write permissions on `data/` directory
+3. Verify `DATABASE_PATH` in `.env` is correct
+
+### Email not sending
+
+1. Check SMTP settings in `.env`
+2. Test SMTP connection with external tool first
+3. Check server logs for SMTP errors
+4. **Note:** Payment tracking works even if email fails
+
+### Admin panel not loading
+
+1. Verify `ADMIN_USER` and `ADMIN_PASS` in `.env`
+2. Clear browser cache and try incognito mode
+3. Check browser console for JavaScript errors
+
+### iPad kiosk issues
+
+1. Ensure Safari is in fullscreen mode
+2. Enable "Guided Access" in iOS settings for true kiosk mode
+3. Check network connectivity
+4. Clear Safari cache if UI looks broken
+
+### Performance issues
+
+1. Check SQLite database size: `ls -lh data/coffee.db`
+2. Run vacuum: `sqlite3 data/coffee.db "VACUUM;"`
+3. Check server memory with `pm2 monit` (if using PM2)
 
 ## 📝 License
 

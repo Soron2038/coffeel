@@ -1,0 +1,35 @@
+# CofFeEL systemd Service (Alternative to PM2)
+# Copy to /etc/systemd/system/coffeel.service
+# Then: sudo systemctl enable coffeel && sudo systemctl start coffeel
+
+[Unit]
+Description=CofFeEL Coffee Tracking System
+Documentation=https://github.com/Soron2038/coffeel
+After=network.target
+
+[Service]
+Type=simple
+User=coffeel
+Group=coffeel
+WorkingDirectory=/opt/coffeel
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/coffeel/.env
+
+# Logging
+StandardOutput=append:/var/log/coffeel/out.log
+StandardError=append:/var/log/coffeel/error.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/coffeel/data /var/log/coffeel
+
+[Install]
+WantedBy=multi-user.target
