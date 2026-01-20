@@ -122,7 +122,7 @@ body {
    ============================================ */
 
 .header {
-  background: var(--color-white);
+  background: var(--color-gray-800);
   padding: var(--space-2) var(--space-3);
   box-shadow: var(--shadow-md);
   position: sticky;
@@ -140,7 +140,17 @@ body {
 .logo {
   font-size: var(--font-size-2xl);
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--color-white);
+}
+
+/* Add User button in dark header */
+.header .btn-primary {
+  background: var(--color-primary-light);
+  color: var(--color-gray-800);
+}
+
+.header .btn-primary:hover {
+  background: var(--color-white);
 }
 
 /* Search */
