@@ -72,6 +72,12 @@ const updateSetting = (key, value) => {
     'bank_iban',
     'bank_bic',
     'bank_owner',
+    'smtp_host',
+    'smtp_port',
+    'smtp_secure',
+    'smtp_user',
+    'smtp_pass',
+    'smtp_from',
   ];
 
   if (!allowedKeys.includes(key)) {
