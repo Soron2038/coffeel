@@ -35,7 +35,7 @@ describe('User Service', () => {
       expect(savedUser.first_name).toBe('John');
       expect(savedUser.last_name).toBe('Doe');
       expect(savedUser.email).toBe('john.doe@example.com');
-      expect(savedUser.coffee_count).toBe(0);
+      expect(savedUser.current_tab).toBe(0);
       expect(savedUser.pending_payment).toBe(0);
       expect(savedUser.account_balance).toBe(0);
       expect(savedUser.deleted_by_user).toBe(0);
@@ -106,7 +106,7 @@ describe('User Service', () => {
 
     test('preserves payment data after soft delete', () => {
       const user = createTestUser(db, {
-        coffeeCount: 5,
+        currentTab: 5.0,
         pendingPayment: 10.0,
         accountBalance: -10.0,
       });
@@ -115,7 +115,7 @@ describe('User Service', () => {
       db.prepare('UPDATE users SET deleted_by_user = 1 WHERE id = ?').run(user.id);
 
       const deletedUser = getUserById(db, user.id);
-      expect(deletedUser.coffee_count).toBe(5);
+      expect(deletedUser.current_tab).toBe(5.0);
       expect(deletedUser.pending_payment).toBe(10.0);
       expect(deletedUser.account_balance).toBe(-10.0);
     });
@@ -186,47 +186,49 @@ describe('User Service', () => {
     });
   });
 
-  describe('Coffee Increment/Decrement', () => {
-    test('increments coffee count', () => {
-      const user = createTestUser(db, { coffeeCount: 0 });
+  describe('Tab Increment/Decrement', () => {
+    const COFFEE_PRICE = 0.5;
 
-      db.prepare('UPDATE users SET coffee_count = coffee_count + 1 WHERE id = ?').run(user.id);
+    test('increments tab by coffee price', () => {
+      const user = createTestUser(db, { currentTab: 0 });
 
-      const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(1);
-    });
-
-    test('decrements coffee count', () => {
-      const user = createTestUser(db, { coffeeCount: 5 });
-
-      db.prepare('UPDATE users SET coffee_count = coffee_count - 1 WHERE id = ?').run(user.id);
+      db.prepare('UPDATE users SET current_tab = current_tab + ? WHERE id = ?').run(COFFEE_PRICE, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(4);
+      expect(updatedUser.current_tab).toBe(0.5);
     });
 
-    test('does not allow negative coffee count', () => {
-      const user = createTestUser(db, { coffeeCount: 0 });
+    test('decrements tab by coffee price', () => {
+      const user = createTestUser(db, { currentTab: 2.5 });
 
-      // Decrement with CHECK constraint (implemented at service level)
+      db.prepare('UPDATE users SET current_tab = current_tab - ? WHERE id = ?').run(COFFEE_PRICE, user.id);
+
+      const updatedUser = getUserById(db, user.id);
+      expect(updatedUser.current_tab).toBe(2.0);
+    });
+
+    test('does not allow negative tab', () => {
+      const user = createTestUser(db, { currentTab: 0 });
+
+      // Decrement with MAX constraint (implemented at service level)
       db.prepare(`
-        UPDATE users SET coffee_count = MAX(0, coffee_count - 1) WHERE id = ?
-      `).run(user.id);
+        UPDATE users SET current_tab = MAX(0, current_tab - ?) WHERE id = ?
+      `).run(COFFEE_PRICE, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
     });
 
     test('handles multiple increments correctly', () => {
-      const user = createTestUser(db, { coffeeCount: 0 });
+      const user = createTestUser(db, { currentTab: 0 });
 
-      // Simulate 5 coffee increments
+      // Simulate 5 coffee increments (each adds €0.50)
       for (let i = 0; i < 5; i++) {
-        db.prepare('UPDATE users SET coffee_count = coffee_count + 1 WHERE id = ?').run(user.id);
+        db.prepare('UPDATE users SET current_tab = current_tab + ? WHERE id = ?').run(COFFEE_PRICE, user.id);
       }
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(5);
+      expect(updatedUser.current_tab).toBe(2.5); // 5 × €0.50
     });
   });
 
@@ -260,23 +262,23 @@ describe('User Service', () => {
     });
   });
 
-  describe('Set Coffee Count', () => {
-    test('admin can set coffee count directly', () => {
-      const user = createTestUser(db, { coffeeCount: 5 });
+  describe('Set Current Tab', () => {
+    test('admin can set tab amount directly', () => {
+      const user = createTestUser(db, { currentTab: 2.5 });
 
-      db.prepare('UPDATE users SET coffee_count = ? WHERE id = ?').run(10, user.id);
+      db.prepare('UPDATE users SET current_tab = ? WHERE id = ?').run(5.0, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(10);
+      expect(updatedUser.current_tab).toBe(5.0);
     });
 
-    test('setting coffee count to zero works', () => {
-      const user = createTestUser(db, { coffeeCount: 5 });
+    test('setting tab to zero works', () => {
+      const user = createTestUser(db, { currentTab: 2.5 });
 
-      db.prepare('UPDATE users SET coffee_count = 0 WHERE id = ?').run(user.id);
+      db.prepare('UPDATE users SET current_tab = 0 WHERE id = ?').run(user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
     });
   });
 });

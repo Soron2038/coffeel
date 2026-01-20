@@ -29,19 +29,17 @@ describe('Email Service - SMTP Failure Handling', () => {
   describe('Payment State Preservation', () => {
     test('payment state is saved before email attempt', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice; // 5.00
+      const amountToPay = user.currentTab;
 
       // Simulate: Save payment state FIRST (before email)
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
@@ -49,13 +47,13 @@ describe('Email Service - SMTP Failure Handling', () => {
 
       // Create payment record FIRST (before email)
       const paymentResult = db.prepare(`
-        INSERT INTO payments (user_id, amount, type, coffee_count)
-        VALUES (?, ?, 'request', ?)
-      `).run(user.id, amountToPay, coffeeCount);
+        INSERT INTO payments (user_id, amount, type)
+        VALUES (?, ?, 'request')
+      `).run(user.id, amountToPay);
 
       // Verify state is saved
       const savedUser = getUserById(db, user.id);
-      expect(savedUser.coffee_count).toBe(0);
+      expect(savedUser.current_tab).toBe(0);
       expect(savedUser.pending_payment).toBe(5.0);
       expect(savedUser.account_balance).toBe(-5.0);
 
@@ -66,28 +64,26 @@ describe('Email Service - SMTP Failure Handling', () => {
 
     test('payment state remains intact when email fails', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice;
+      const amountToPay = user.currentTab;
 
       // Step 1: Save payment state (ALWAYS succeeds)
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, amountToPay, user.id);
 
       db.prepare(`
-        INSERT INTO payments (user_id, amount, type, coffee_count)
-        VALUES (?, ?, 'request', ?)
-      `).run(user.id, amountToPay, coffeeCount);
+        INSERT INTO payments (user_id, amount, type)
+        VALUES (?, ?, 'request')
+      `).run(user.id, amountToPay);
 
       // Step 2: Simulate email failure (AFTER payment state saved)
       const emailFailed = true; // Simulate SMTP error
@@ -100,7 +96,7 @@ describe('Email Service - SMTP Failure Handling', () => {
 
       // Step 3: Verify payment state is preserved
       const finalUser = getUserById(db, user.id);
-      expect(finalUser.coffee_count).toBe(0);
+      expect(finalUser.current_tab).toBe(0);
       expect(finalUser.pending_payment).toBe(5.0);
       expect(finalUser.account_balance).toBe(-5.0);
 
@@ -111,28 +107,26 @@ describe('Email Service - SMTP Failure Handling', () => {
 
     test('email success flag does not affect payment state', () => {
       const user = createTestUser(db, {
-        coffeeCount: 6,
+        currentTab: 3.0, // €3.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice; // 3.00
+      const amountToPay = user.currentTab;
 
       // Save payment state
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, amountToPay, user.id);
 
       db.prepare(`
-        INSERT INTO payments (user_id, amount, type, coffee_count)
-        VALUES (?, ?, 'request', ?)
-      `).run(user.id, amountToPay, coffeeCount);
+        INSERT INTO payments (user_id, amount, type)
+        VALUES (?, ?, 'request')
+      `).run(user.id, amountToPay);
 
       // Test both scenarios: email success and failure
       const emailResults = [
@@ -145,7 +139,7 @@ describe('Email Service - SMTP Failure Handling', () => {
         const savedUser = getUserById(db, user.id);
         
         // Payment state should NOT change based on email result
-        expect(savedUser.coffee_count).toBe(0);
+        expect(savedUser.current_tab).toBe(0);
         expect(savedUser.pending_payment).toBe(3.0);
         expect(savedUser.account_balance).toBe(-3.0);
       }
@@ -153,28 +147,26 @@ describe('Email Service - SMTP Failure Handling', () => {
 
     test('multiple email retries do not duplicate payment records', () => {
       const user = createTestUser(db, {
-        coffeeCount: 4,
+        currentTab: 2.0, // €2.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice; // 2.00
+      const amountToPay = user.currentTab;
 
       // Save payment state ONCE
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, amountToPay, user.id);
 
       db.prepare(`
-        INSERT INTO payments (user_id, amount, type, coffee_count)
-        VALUES (?, ?, 'request', ?)
-      `).run(user.id, amountToPay, coffeeCount);
+        INSERT INTO payments (user_id, amount, type)
+        VALUES (?, ?, 'request')
+      `).run(user.id, amountToPay);
 
       // Simulate 3 email retry attempts (none modify DB)
       for (let i = 0; i < 3; i++) {
@@ -195,7 +187,7 @@ describe('Email Service - SMTP Failure Handling', () => {
   describe('Email Error Logging', () => {
     test('email errors are logged but do not throw', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
@@ -204,13 +196,11 @@ describe('Email Service - SMTP Failure Handling', () => {
       let errorLogged = false;
       
       // Payment saved first
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice;
+      const amountToPay = user.currentTab;
 
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
@@ -228,7 +218,7 @@ describe('Email Service - SMTP Failure Handling', () => {
 
       // Payment state preserved
       const finalUser = getUserById(db, user.id);
-      expect(finalUser.coffee_count).toBe(0);
+      expect(finalUser.current_tab).toBe(0);
       expect(finalUser.pending_payment).toBe(5.0);
     });
   });
@@ -236,14 +226,12 @@ describe('Email Service - SMTP Failure Handling', () => {
   describe('Transaction Isolation', () => {
     test('email sending is outside payment transaction', () => {
       const user = createTestUser(db, {
-        coffeeCount: 8,
+        currentTab: 4.0, // €4.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const amountToPay = coffeeCount * coffeePrice; // 4.00
+      const amountToPay = user.currentTab;
 
       // This demonstrates the correct pattern:
       // 1. Database transaction for payment state
@@ -253,16 +241,16 @@ describe('Email Service - SMTP Failure Handling', () => {
       const txn = db.transaction(() => {
         db.prepare(`
           UPDATE users SET 
-            coffee_count = 0,
+            current_tab = 0,
             pending_payment = pending_payment + ?,
             account_balance = account_balance - ?
           WHERE id = ?
         `).run(amountToPay, amountToPay, user.id);
 
         db.prepare(`
-          INSERT INTO payments (user_id, amount, type, coffee_count)
-          VALUES (?, ?, 'request', ?)
-        `).run(user.id, amountToPay, coffeeCount);
+          INSERT INTO payments (user_id, amount, type)
+          VALUES (?, ?, 'request')
+        `).run(user.id, amountToPay);
       });
       txn();
 
@@ -278,7 +266,7 @@ describe('Email Service - SMTP Failure Handling', () => {
 
       // Regardless of email status, payment is committed
       const finalUser = getUserById(db, user.id);
-      expect(finalUser.coffee_count).toBe(0);
+      expect(finalUser.current_tab).toBe(0);
       expect(finalUser.pending_payment).toBe(4.0);
       expect(finalUser.account_balance).toBe(-4.0);
     });

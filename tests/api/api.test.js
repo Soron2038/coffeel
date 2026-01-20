@@ -17,6 +17,7 @@ process.env.LOG_LEVEL = 'error';
 // Mock email service
 jest.mock('../../src/services/emailService', () => ({
   sendPaymentRequest: jest.fn().mockResolvedValue({ success: true, messageId: 'mock-id' }),
+  sendPaymentRequestByAmount: jest.fn().mockResolvedValue({ success: true, messageId: 'mock-id' }),
 }));
 
 const { createTestDatabase, closeTestDatabase } = require('../helpers');
@@ -197,23 +198,24 @@ describe('API Endpoints', () => {
     });
   });
 
-  describe('Coffee Tracking Endpoints', () => {
+  describe('Tab Tracking Endpoints', () => {
     let userId;
+    const COFFEE_PRICE = 0.5; // Default price
 
     beforeEach(() => {
       const result = db.prepare(`
-        INSERT INTO users (first_name, last_name, email, coffee_count) 
+        INSERT INTO users (first_name, last_name, email, current_tab) 
         VALUES ('Coffee', 'Drinker', 'coffee@test.com', 0)
       `).run();
       userId = result.lastInsertRowid;
     });
 
     describe('POST /api/users/:id/increment', () => {
-      test('increments coffee count', async () => {
+      test('increments tab by coffee price', async () => {
         const res = await request(app).post(`/api/users/${userId}/increment`);
         
         expect(res.status).toBe(200);
-        expect(res.body.coffeeCount).toBe(1);
+        expect(res.body.currentTab).toBe(COFFEE_PRICE);
       });
 
       test('handles multiple increments', async () => {
@@ -221,26 +223,26 @@ describe('API Endpoints', () => {
         await request(app).post(`/api/users/${userId}/increment`);
         const res = await request(app).post(`/api/users/${userId}/increment`);
         
-        expect(res.body.coffeeCount).toBe(3);
+        expect(res.body.currentTab).toBe(COFFEE_PRICE * 3); // €1.50
       });
     });
 
     describe('POST /api/users/:id/decrement', () => {
-      test('decrements coffee count', async () => {
-        // First set coffee count to 5
-        db.prepare('UPDATE users SET coffee_count = 5 WHERE id = ?').run(userId);
+      test('decrements tab by coffee price', async () => {
+        // First set tab to €2.50
+        db.prepare('UPDATE users SET current_tab = 2.5 WHERE id = ?').run(userId);
 
         const res = await request(app).post(`/api/users/${userId}/decrement`);
         
         expect(res.status).toBe(200);
-        expect(res.body.coffeeCount).toBe(4);
+        expect(res.body.currentTab).toBe(2.0);
       });
 
       test('does not go below zero', async () => {
         const res = await request(app).post(`/api/users/${userId}/decrement`);
         
         expect(res.status).toBe(200);
-        expect(res.body.coffeeCount).toBe(0);
+        expect(res.body.currentTab).toBe(0);
       });
     });
   });
@@ -250,8 +252,8 @@ describe('API Endpoints', () => {
 
     beforeEach(() => {
       const result = db.prepare(`
-        INSERT INTO users (first_name, last_name, email, coffee_count, pending_payment, account_balance) 
-        VALUES ('Pay', 'User', 'pay@test.com', 10, 0, 0)
+        INSERT INTO users (first_name, last_name, email, current_tab, pending_payment, account_balance) 
+        VALUES ('Pay', 'User', 'pay@test.com', 5.0, 0, 0)
       `).run();
       userId = result.lastInsertRowid;
     });
@@ -261,17 +263,17 @@ describe('API Endpoints', () => {
         const res = await request(app).post(`/api/users/${userId}/pay`);
         
         expect(res.status).toBe(200);
-        expect(res.body.coffeeCount).toBe(0);
-        expect(res.body.pendingPayment).toBe(5.0); // 10 coffees * €0.50
+        expect(res.body.currentTab).toBe(0);
+        expect(res.body.pendingPayment).toBe(5.0); // €5.00 tab
       });
 
-      test('rejects payment for zero coffees', async () => {
-        db.prepare('UPDATE users SET coffee_count = 0 WHERE id = ?').run(userId);
+      test('rejects payment for zero tab', async () => {
+        db.prepare('UPDATE users SET current_tab = 0 WHERE id = ?').run(userId);
 
         const res = await request(app).post(`/api/users/${userId}/pay`);
         
         expect(res.status).toBe(400);
-        expect(res.body.error).toContain('No coffees');
+        expect(res.body.error).toContain('amount');
       });
 
       test('applies existing credit', async () => {

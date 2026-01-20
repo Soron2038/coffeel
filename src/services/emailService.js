@@ -223,6 +223,154 @@ This is an automated message.
 };
 
 /**
+ * Send payment request email (amount-based, no coffee count)
+ * @param {Object} user - User object
+ * @param {number} amount - Total amount to pay
+ * @returns {Object} Result with success status
+ */
+const sendPaymentRequestByAmount = async (user, amount) => {
+  const bankDetails = settingsService.getBankDetails();
+  const adminEmail = settingsService.getAdminEmail();
+
+  const emailContent = generatePaymentRequestEmailByAmount(
+    user,
+    amount,
+    bankDetails
+  );
+
+  try {
+    const transport = getTransporter();
+    const smtpConfig = getSmtpConfig();
+    
+    const mailOptions = {
+      from: smtpConfig.from,
+      to: user.email,
+      cc: adminEmail,
+      subject: `Coffee Payment Request - €${amount.toFixed(2)}`,
+      text: emailContent.text,
+      html: emailContent.html,
+    };
+
+    const info = await transport.sendMail(mailOptions);
+    
+    logger.info('Payment request email sent', {
+      userId: user.id,
+      email: user.email,
+      amount,
+      messageId: info.messageId,
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    logger.error('Failed to send payment request email', {
+      error: err.message,
+      userId: user.id,
+      email: user.email,
+    });
+
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * Generate payment request email content (amount-based)
+ */
+const generatePaymentRequestEmailByAmount = (user, amount, bankDetails) => {
+  const paymentReference = `Coffee - ${user.firstName} ${user.lastName}`;
+  
+  const text = `
+Hello ${user.firstName},
+
+This is a payment request for your coffee consumption.
+
+=== Payment Summary ===
+Amount due: €${amount.toFixed(2)}
+
+=== Payment Details ===
+Bank: ${bankDetails.owner}
+IBAN: ${bankDetails.iban}
+BIC: ${bankDetails.bic}
+Reference: ${paymentReference}
+
+Please transfer the amount to the account above.
+
+Thank you for your payment!
+
+---
+CofFeEL - Coffee Tracking System
+This is an automated message.
+`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background: #8b5a2b; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+    .content { background: #faf8f5; padding: 20px; border: 1px solid #c9ad8c; }
+    .summary { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+    .bank-details { background: #f5ebe0; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #8b5a2b; }
+    .amount { font-size: 24px; font-weight: bold; color: #8b5a2b; }
+    .footer { padding: 15px; text-align: center; color: #7a5f45; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 8px 0; }
+    .label { color: #7a5f45; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin: 0;">☕ Coffee Payment Request</h1>
+    </div>
+    <div class="content">
+      <p>Hello ${user.firstName},</p>
+      <p>This is a payment request for your coffee consumption.</p>
+      
+      <div class="summary">
+        <h3 style="margin-top: 0;">Amount Due</h3>
+        <p class="amount">€${amount.toFixed(2)}</p>
+      </div>
+      
+      <div class="bank-details">
+        <h3 style="margin-top: 0;">Payment Details</h3>
+        <table>
+          <tr>
+            <td class="label">Bank:</td>
+            <td><strong>${bankDetails.owner}</strong></td>
+          </tr>
+          <tr>
+            <td class="label">IBAN:</td>
+            <td><code>${bankDetails.iban}</code></td>
+          </tr>
+          <tr>
+            <td class="label">BIC:</td>
+            <td><code>${bankDetails.bic}</code></td>
+          </tr>
+          <tr>
+            <td class="label">Reference:</td>
+            <td><strong>${paymentReference}</strong></td>
+          </tr>
+        </table>
+      </div>
+      
+      <p>Please transfer the amount to the account above.</p>
+      <p>Thank you for your payment!</p>
+    </div>
+    <div class="footer">
+      <p>CofFeEL - Coffee Tracking System<br>This is an automated message.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return { text, html };
+};
+
+/**
  * Verify SMTP connection
  * @returns {Object} Result with success status
  */
@@ -291,6 +439,7 @@ const sendTestEmail = async (toEmail) => {
 
 module.exports = {
   sendPaymentRequest,
+  sendPaymentRequestByAmount,
   verifyConnection,
   resetTransporter,
   sendTestEmail,

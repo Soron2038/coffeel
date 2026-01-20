@@ -76,39 +76,41 @@ router.delete('/users/:id/permanent', requireAdmin, validateIdParam, asyncHandle
 }));
 
 // ============================================
-// COFFEE TRACKING ENDPOINTS
+// TAB TRACKING ENDPOINTS
 // ============================================
 
-// POST /api/users/:id/increment - Increment coffee count
+// POST /api/users/:id/increment - Add coffee price to tab
 router.post('/users/:id/increment', validateIdParam, asyncHandler(async (req, res) => {
-  const result = userService.incrementCoffee(req.userId);
+  const coffeePrice = settingsService.getCoffeePrice();
+  const result = userService.incrementTab(req.userId, coffeePrice);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }
   res.json({
     id: result.user.id,
-    coffeeCount: result.user.coffeeCount,
+    currentTab: result.user.currentTab,
     accountBalance: result.user.accountBalance,
   });
 }));
 
-// POST /api/users/:id/decrement - Decrement coffee count
+// POST /api/users/:id/decrement - Subtract coffee price from tab
 router.post('/users/:id/decrement', validateIdParam, asyncHandler(async (req, res) => {
-  const result = userService.decrementCoffee(req.userId);
+  const coffeePrice = settingsService.getCoffeePrice();
+  const result = userService.decrementTab(req.userId, coffeePrice);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }
   res.json({
     id: result.user.id,
-    coffeeCount: result.user.coffeeCount,
+    currentTab: result.user.currentTab,
     accountBalance: result.user.accountBalance,
   });
 }));
 
-// PUT /api/users/:id/coffee-count - Set coffee count directly (admin)
-router.put('/users/:id/coffee-count', requireAdmin, validateIdParam, asyncHandler(async (req, res) => {
-  const { count } = req.body;
-  const result = userService.setCoffeeCount(req.userId, count);
+// PUT /api/users/:id/current-tab - Set tab amount directly (admin)
+router.put('/users/:id/current-tab', requireAdmin, validateIdParam, asyncHandler(async (req, res) => {
+  const { amount } = req.body;
+  const result = userService.setCurrentTab(req.userId, amount);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }
@@ -127,7 +129,7 @@ router.post('/users/:id/pay', validateIdParam, asyncHandler(async (req, res) => 
   }
   res.json({
     id: result.user.id,
-    coffeeCount: result.user.coffeeCount,
+    currentTab: result.user.currentTab,
     pendingPayment: result.user.pendingPayment,
     accountBalance: result.user.accountBalance,
     emailSent: result.payment.emailSent,
@@ -234,12 +236,12 @@ router.get('/export/csv', requireAdmin, asyncHandler(async (req, res) => {
   const includeDeleted = req.query.includeDeleted !== 'false';
   const data = paymentService.exportData(includeDeleted);
 
-  const userHeaders = ['ID', 'First Name', 'Last Name', 'Email', 'Coffee Count', 'Pending Payment', 'Account Balance', 'Last Payment Request', 'Deleted', 'Deleted At', 'Created At'];
-  const userRows = data.users.map(u => [u.id, u.firstName, u.lastName, u.email, u.coffeeCount, u.pendingPayment, u.accountBalance, u.lastPaymentRequest || '', u.deleted, u.deletedAt || '', u.createdAt]);
+  const userHeaders = ['ID', 'First Name', 'Last Name', 'Email', 'Current Tab', 'Pending Payment', 'Account Balance', 'Last Payment Request', 'Deleted', 'Deleted At', 'Created At'];
+  const userRows = data.users.map(u => [u.id, u.firstName, u.lastName, u.email, u.currentTab, u.pendingPayment, u.accountBalance, u.lastPaymentRequest || '', u.deleted, u.deletedAt || '', u.createdAt]);
   const usersCSV = [userHeaders.join(','), ...userRows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
 
-  const paymentHeaders = ['ID', 'User ID', 'User Name', 'Email', 'Amount', 'Type', 'Coffee Count', 'Confirmed', 'Notes', 'Created At'];
-  const paymentRows = data.payments.map(p => [p.id, p.userId, p.userName, p.userEmail, p.amount, p.type, p.coffeeCount || '', p.confirmedByAdmin ? 'Yes' : 'No', p.adminNotes || '', p.createdAt]);
+  const paymentHeaders = ['ID', 'User ID', 'User Name', 'Email', 'Amount', 'Type', 'Confirmed', 'Notes', 'Created At'];
+  const paymentRows = data.payments.map(p => [p.id, p.userId, p.userName, p.userEmail, p.amount, p.type, p.confirmedByAdmin ? 'Yes' : 'No', p.adminNotes || '', p.createdAt]);
   const paymentsCSV = [paymentHeaders.join(','), ...paymentRows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
 
   res.setHeader('Content-Type', 'text/csv');

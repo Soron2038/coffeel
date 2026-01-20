@@ -12,7 +12,7 @@ let filteredUsers = [];
 let searchQuery = '';
 let debounceTimer = null;
 let buttonDebounceTimers = {};
-let coffeePrice = 0.50; // Default, loaded from server
+let coffeePrice = 0.50; // Default, loaded from server (used for +/- increment)
 let pollInterval = null;
 let idleTimeout = null;
 let isIdle = false;
@@ -134,11 +134,8 @@ function renderUserList() {
 }
 
 function renderUserCard(user) {
-  // Calculate current coffee tab (what user can still adjust with +/-)
-  const currentCoffeeAmount = user.coffeeCount * coffeePrice;
-  
-  // Total amount owed = current coffees + pending payment (already submitted but not confirmed)
-  const totalOwed = currentCoffeeAmount + (user.pendingPayment || 0);
+  // Total amount owed = currentTab (unpaid) + pendingPayment (awaiting confirmation)
+  const totalOwed = (user.currentTab || 0) + (user.pendingPayment || 0);
   const displayAmount = totalOwed.toFixed(2);
   
   // Show pending badge if there's an unconfirmed payment
@@ -155,7 +152,7 @@ function renderUserCard(user) {
       </div>
       <div class="user-actions">
         <div class="coffee-counter">
-          <button class="btn btn-counter btn-minus" data-action="decrement" data-user-id="${user.id}" ${user.coffeeCount <= 0 ? 'disabled' : ''}>
+          <button class="btn btn-counter btn-minus" data-action="decrement" data-user-id="${user.id}" ${user.currentTab <= 0 ? 'disabled' : ''}>
             −
           </button>
           <span class="coffee-count">€${displayAmount}</span>
@@ -164,7 +161,7 @@ function renderUserCard(user) {
           </button>
         </div>
         <div class="action-buttons">
-          <button class="btn btn-pay" data-action="pay" data-user-id="${user.id}" ${user.coffeeCount <= 0 ? 'disabled' : ''}>
+          <button class="btn btn-pay" data-action="pay" data-user-id="${user.id}" ${user.currentTab <= 0 ? 'disabled' : ''}>
             Pay
           </button>
           <div class="user-status">
@@ -235,10 +232,12 @@ async function handleCoffeeChange(e) {
   const user = users.find(u => u.id === userId);
   if (!user) return;
 
-  const oldCount = user.coffeeCount;
-  const newCount = action === 'increment' ? oldCount + 1 : Math.max(0, oldCount - 1);
+  const oldTab = user.currentTab || 0;
+  const newTab = action === 'increment' 
+    ? oldTab + coffeePrice 
+    : Math.max(0, oldTab - coffeePrice);
 
-  updateUserCard(userId, { coffeeCount: newCount });
+  updateUserCard(userId, { currentTab: Math.round(newTab * 100) / 100 });
 
   try {
     const result = action === 'increment'
@@ -247,12 +246,12 @@ async function handleCoffeeChange(e) {
 
     // Update with server response
     updateUserCard(userId, {
-      coffeeCount: result.coffeeCount,
+      currentTab: result.currentTab,
       accountBalance: result.accountBalance,
     });
   } catch (error) {
     // Rollback on error
-    updateUserCard(userId, { coffeeCount: oldCount });
+    updateUserCard(userId, { currentTab: oldTab });
     showToast(error.message, 'error');
   }
 }
@@ -262,10 +261,10 @@ async function handlePayClick(e) {
   const userId = parseInt(btn.dataset.userId, 10);
   const user = users.find(u => u.id === userId);
 
-  if (!user || user.coffeeCount <= 0) return;
+  if (!user || (user.currentTab || 0) <= 0) return;
 
-  // Calculate amount for confirmation
-  const amountToPay = (user.coffeeCount * coffeePrice).toFixed(2);
+  // Show amount for confirmation
+  const amountToPay = (user.currentTab || 0).toFixed(2);
 
   showConfirmDialog({
     title: 'Confirm Payment Request',
@@ -278,7 +277,7 @@ async function handlePayClick(e) {
         const result = await api.requestPayment(userId);
 
         updateUserCard(userId, {
-          coffeeCount: result.coffeeCount,
+          currentTab: result.currentTab,
           pendingPayment: result.pendingPayment,
           accountBalance: result.accountBalance,
         });
@@ -300,8 +299,9 @@ async function handleDeleteClick(e) {
 
   if (!user) return;
 
-  const details = user.coffeeCount > 0
-    ? `Outstanding coffees: ${user.coffeeCount} (not yet paid)`
+  const outstanding = (user.currentTab || 0) + (user.pendingPayment || 0);
+  const details = outstanding > 0
+    ? `Outstanding amount: €${outstanding.toFixed(2)} (not yet paid)`
     : '';
 
   showConfirmDialog({

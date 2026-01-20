@@ -14,7 +14,7 @@ const getAllUsers = (includeDeleted = false) => {
       first_name,
       last_name,
       email,
-      coffee_count,
+      current_tab,
       pending_payment,
       account_balance,
       last_payment_request,
@@ -201,94 +201,100 @@ const hardDeleteUser = (id) => {
 };
 
 /**
- * Increment coffee count for a user
+ * Increment tab by coffee price (user clicked +)
  * @param {number} id - User ID
+ * @param {number} coffeePrice - Price per coffee in EUR
  * @returns {Object} Result with user or error
  */
-const incrementCoffee = (id) => {
+const incrementTab = (id, coffeePrice) => {
   const user = getUserById(id);
   if (!user) {
     return { success: false, error: 'User not found' };
   }
 
+  const price = Math.round(coffeePrice * 100) / 100;
+
   try {
-    const oldCount = user.coffeeCount;
+    const oldTab = user.currentTab;
     db.run(
-      'UPDATE users SET coffee_count = coffee_count + 1 WHERE id = ?',
-      [id]
+      'UPDATE users SET current_tab = ROUND(current_tab + ?, 2) WHERE id = ?',
+      [price, id]
     );
 
-    logAudit(id, 'increment', oldCount, oldCount + 1, null, 'user');
+    logAudit(id, 'increment', null, null, price, 'user');
 
     return { success: true, user: getUserById(id) };
   } catch (err) {
-    logger.error('Failed to increment coffee', { error: err.message, userId: id });
-    return { success: false, error: 'Failed to increment coffee count' };
+    logger.error('Failed to increment tab', { error: err.message, userId: id });
+    return { success: false, error: 'Failed to add to tab' };
   }
 };
 
 /**
- * Decrement coffee count for a user (minimum 0)
+ * Decrement tab by coffee price (user clicked -, minimum 0)
  * @param {number} id - User ID
+ * @param {number} coffeePrice - Price per coffee in EUR
  * @returns {Object} Result with user or error
  */
-const decrementCoffee = (id) => {
+const decrementTab = (id, coffeePrice) => {
   const user = getUserById(id);
   if (!user) {
     return { success: false, error: 'User not found' };
   }
 
-  if (user.coffeeCount <= 0) {
+  if (user.currentTab <= 0) {
     return { success: true, user }; // Already at 0, no change
   }
 
+  const price = Math.round(coffeePrice * 100) / 100;
+  const amountToDeduct = Math.min(price, user.currentTab); // Don't go below 0
+
   try {
-    const oldCount = user.coffeeCount;
     db.run(
-      'UPDATE users SET coffee_count = coffee_count - 1 WHERE id = ? AND coffee_count > 0',
-      [id]
+      'UPDATE users SET current_tab = ROUND(MAX(0, current_tab - ?), 2) WHERE id = ?',
+      [price, id]
     );
 
-    logAudit(id, 'decrement', oldCount, oldCount - 1, null, 'user');
+    logAudit(id, 'decrement', null, null, -amountToDeduct, 'user');
 
     return { success: true, user: getUserById(id) };
   } catch (err) {
-    logger.error('Failed to decrement coffee', { error: err.message, userId: id });
-    return { success: false, error: 'Failed to decrement coffee count' };
+    logger.error('Failed to decrement tab', { error: err.message, userId: id });
+    return { success: false, error: 'Failed to subtract from tab' };
   }
 };
 
 /**
- * Update user's coffee count directly (admin only)
+ * Set user's current tab directly (admin only)
  * @param {number} id - User ID
- * @param {number} count - New coffee count
+ * @param {number} amount - New tab amount in EUR
  * @returns {Object} Result with user or error
  */
-const setCoffeeCount = (id, count) => {
+const setCurrentTab = (id, amount) => {
   const user = getUserById(id);
   if (!user) {
     return { success: false, error: 'User not found' };
   }
 
-  const newCount = Math.max(0, parseInt(count, 10));
-  if (isNaN(newCount)) {
-    return { success: false, error: 'Invalid coffee count' };
+  const newAmount = Math.max(0, Math.round(parseFloat(amount) * 100) / 100);
+  if (isNaN(newAmount)) {
+    return { success: false, error: 'Invalid amount' };
   }
 
   try {
-    const oldCount = user.coffeeCount;
+    const oldAmount = user.currentTab;
     db.run(
-      'UPDATE users SET coffee_count = ? WHERE id = ?',
-      [newCount, id]
+      'UPDATE users SET current_tab = ? WHERE id = ?',
+      [newAmount, id]
     );
 
-    logAudit(id, oldCount < newCount ? 'increment' : 'decrement', oldCount, newCount, null, 'admin');
-    logger.info('Coffee count updated by admin', { userId: id, oldCount, newCount });
+    logAudit(id, oldAmount < newAmount ? 'increment' : 'decrement', null, null, newAmount - oldAmount, 'admin');
+    logger.info('Tab updated by admin', { userId: id, oldAmount, newAmount });
 
     return { success: true, user: getUserById(id) };
   } catch (err) {
-    logger.error('Failed to set coffee count', { error: err.message, userId: id });
-    return { success: false, error: 'Failed to update coffee count' };
+    logger.error('Failed to set tab', { error: err.message, userId: id });
+    return { success: false, error: 'Failed to update tab' };
   }
 };
 
@@ -341,7 +347,7 @@ const formatUser = (row) => ({
   firstName: row.first_name,
   lastName: row.last_name,
   email: row.email,
-  coffeeCount: row.coffee_count,
+  currentTab: row.current_tab,
   pendingPayment: row.pending_payment,
   accountBalance: row.account_balance,
   lastPaymentRequest: row.last_payment_request,
@@ -372,8 +378,8 @@ module.exports = {
   softDeleteUser,
   restoreUser,
   hardDeleteUser,
-  incrementCoffee,
-  decrementCoffee,
-  setCoffeeCount,
+  incrementTab,
+  decrementTab,
+  setCurrentTab,
   adjustBalance,
 };

@@ -76,7 +76,7 @@ function createTestUser(db, overrides = {}) {
     firstName: 'Test',
     lastName: 'User',
     email: `test${Date.now()}@example.com`,
-    coffeeCount: 0,
+    currentTab: 0,
     pendingPayment: 0,
     accountBalance: 0,
   };
@@ -84,13 +84,13 @@ function createTestUser(db, overrides = {}) {
   const user = { ...defaults, ...overrides };
 
   const result = db.prepare(`
-    INSERT INTO users (first_name, last_name, email, coffee_count, pending_payment, account_balance)
+    INSERT INTO users (first_name, last_name, email, current_tab, pending_payment, account_balance)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     user.firstName,
     user.lastName,
     user.email,
-    user.coffeeCount,
+    user.currentTab,
     user.pendingPayment,
     user.accountBalance
   );

@@ -8,17 +8,17 @@ const userService = require('./userService');
  * Request payment for a user
  * This is the main payment flow when user clicks "Pay" button
  * 
- * Logic (from PRD):
- * 1. Calculate amount: coffee_count × coffee_price
+ * Logic:
+ * 1. Use currentTab as the amount to pay (already in EUR)
  * 2. Apply existing credit: amount -= max(0, account_balance)
  * 3. If amount > 0 after credit:
  *    - Send email
- *    - Set coffee_count = 0
+ *    - Set current_tab = 0
  *    - Increase pending_payment += amount
  *    - Decrease account_balance -= amount
  *    - Create payments entry (type='request')
  * 4. If credit covers all costs:
- *    - Set coffee_count = 0
+ *    - Set current_tab = 0
  *    - Decrease account_balance only
  *    - No email needed
  * 
@@ -31,13 +31,12 @@ const requestPayment = async (userId) => {
     return { success: false, error: 'User not found' };
   }
 
-  const coffeeCount = user.coffeeCount;
-  if (coffeeCount <= 0) {
-    return { success: false, error: 'No coffees to pay for' };
+  const currentTab = user.currentTab;
+  if (currentTab <= 0) {
+    return { success: false, error: 'No amount to pay' };
   }
 
-  const coffeePrice = settingsService.getCoffeePrice();
-  const totalCost = Math.round(coffeeCount * coffeePrice * 100) / 100;
+  const totalCost = Math.round(currentTab * 100) / 100;
   
   // Calculate credit that can be applied
   const availableCredit = Math.max(0, user.accountBalance);
@@ -56,7 +55,7 @@ const requestPayment = async (userId) => {
         // Update user record
         db.run(
           `UPDATE users SET 
-            coffee_count = 0,
+            current_tab = 0,
             pending_payment = pending_payment + ?,
             account_balance = account_balance - ?,
             last_payment_request = CURRENT_TIMESTAMP
@@ -66,17 +65,17 @@ const requestPayment = async (userId) => {
 
         // Create payment record
         const paymentResult = db.run(
-          `INSERT INTO payments (user_id, amount, type, coffee_count)
-           VALUES (?, ?, 'request', ?)`,
-          [userId, amountToPay, coffeeCount]
+          `INSERT INTO payments (user_id, amount, type)
+           VALUES (?, ?, 'request')`,
+          [userId, amountToPay]
         );
         paymentId = paymentResult.lastInsertRowid;
 
         // Audit log
         db.run(
-          `INSERT INTO audit_log (user_id, action, old_value, new_value, amount, performed_by)
-           VALUES (?, 'payment_request', ?, 0, ?, 'user')`,
-          [userId, coffeeCount, amountToPay]
+          `INSERT INTO audit_log (user_id, action, amount, performed_by)
+           VALUES (?, 'payment_request', ?, 'user')`,
+          [userId, amountToPay]
         );
 
       } else {
@@ -85,7 +84,7 @@ const requestPayment = async (userId) => {
         // Update user record (only deduct from credit, no pending payment)
         db.run(
           `UPDATE users SET 
-            coffee_count = 0,
+            current_tab = 0,
             account_balance = account_balance - ?,
             last_payment_request = CURRENT_TIMESTAMP
           WHERE id = ?`,
@@ -94,16 +93,16 @@ const requestPayment = async (userId) => {
 
         // Audit log for credit usage
         db.run(
-          `INSERT INTO audit_log (user_id, action, old_value, new_value, amount, performed_by)
-           VALUES (?, 'payment_request', ?, 0, ?, 'user')`,
-          [userId, coffeeCount, 0]
+          `INSERT INTO audit_log (user_id, action, amount, performed_by)
+           VALUES (?, 'payment_request', ?, 'user')`,
+          [userId, 0]
         );
       }
     });
 
     // Send email AFTER transaction (don't let email failure affect payment tracking)
     if (amountToPay > 0) {
-      const emailResult = await emailService.sendPaymentRequest(user, coffeeCount, amountToPay);
+      const emailResult = await emailService.sendPaymentRequestByAmount(user, amountToPay);
       emailSent = emailResult.success;
       
       if (!emailResult.success) {
@@ -119,7 +118,6 @@ const requestPayment = async (userId) => {
     
     logger.info('Payment requested', {
       userId,
-      coffeeCount,
       totalCost,
       creditApplied,
       amountToPay,
@@ -131,7 +129,6 @@ const requestPayment = async (userId) => {
       user: updatedUser,
       payment: {
         id: paymentId,
-        coffeeCount,
         totalCost,
         creditApplied,
         amountToPay,
@@ -255,7 +252,6 @@ const getPaymentHistory = (filters = {}) => {
       p.user_id,
       p.amount,
       p.type,
-      p.coffee_count,
       p.confirmed_by_admin,
       p.admin_notes,
       p.created_at,
@@ -304,7 +300,6 @@ const getPaymentHistory = (filters = {}) => {
     userEmail: row.email,
     amount: row.amount,
     type: row.type,
-    coffeeCount: row.coffee_count,
     confirmedByAdmin: Boolean(row.confirmed_by_admin),
     adminNotes: row.admin_notes,
     createdAt: row.created_at,
@@ -325,15 +320,16 @@ const getPaymentSummary = () => {
   `);
 
   const totalPending = db.get(`
-    SELECT COALESCE(SUM(pending_payment), 0) as total FROM users
+    SELECT COALESCE(SUM(pending_payment), 0) as total FROM users WHERE deleted_by_user = 0
   `);
 
   const totalCredit = db.get(`
-    SELECT COALESCE(SUM(account_balance), 0) as total FROM users WHERE account_balance > 0
+    SELECT COALESCE(SUM(account_balance), 0) as total FROM users WHERE account_balance > 0 AND deleted_by_user = 0
   `);
 
-  const totalDebt = db.get(`
-    SELECT COALESCE(ABS(SUM(account_balance)), 0) as total FROM users WHERE account_balance < 0
+  // Total outstanding = currentTab + pendingPayment for all active users
+  const totalOutstanding = db.get(`
+    SELECT COALESCE(SUM(current_tab + pending_payment), 0) as total FROM users WHERE deleted_by_user = 0
   `);
 
   return {
@@ -341,7 +337,7 @@ const getPaymentSummary = () => {
     totalReceived: totalReceived.total,
     totalPending: totalPending.total,
     totalCredit: totalCredit.total,
-    totalDebt: totalDebt.total,
+    totalOutstanding: totalOutstanding.total,
   };
 };
 
@@ -357,7 +353,7 @@ const exportData = (includeDeleted = true) => {
       first_name,
       last_name,
       email,
-      coffee_count,
+      current_tab,
       pending_payment,
       account_balance,
       last_payment_request,
@@ -382,7 +378,7 @@ const exportData = (includeDeleted = true) => {
       firstName: u.first_name,
       lastName: u.last_name,
       email: u.email,
-      coffeeCount: u.coffee_count,
+      currentTab: u.current_tab,
       pendingPayment: u.pending_payment,
       accountBalance: u.account_balance,
       lastPaymentRequest: u.last_payment_request,

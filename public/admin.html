@@ -57,7 +57,7 @@
             <span class="summary-value success" id="totalCredit">-</span>
           </div>
           <div class="summary-card">
-            <span class="summary-label">Total Debt</span>
+            <span class="summary-label">Total Outstanding</span>
             <span class="summary-value danger" id="totalDebt">-</span>
           </div>
         </div>
@@ -68,7 +68,7 @@
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Coffees</th>
+                <th>Tab</th>
                 <th>Pending</th>
                 <th>Balance</th>
                 <th>Last Request</th>
@@ -95,7 +95,7 @@
               <tr>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Coffees</th>
+                <th>Tab</th>
                 <th>Pending</th>
                 <th>Balance</th>
                 <th>Deleted At</th>
@@ -148,7 +148,6 @@
                 <th>User</th>
                 <th>Type</th>
                 <th>Amount</th>
-                <th>Coffees</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -319,18 +318,18 @@
       </div>
     </div>
 
-    <!-- Adjust Coffee Modal -->
+    <!-- Adjust Tab Modal -->
     <div class="modal-overlay" id="adjustCoffeeModal">
       <div class="modal">
         <div class="modal-header">
-          <h2>Adjust Coffee Count</h2>
+          <h2>Adjust Tab</h2>
           <button class="modal-close" id="closeAdjustModal">&times;</button>
         </div>
         <div class="modal-body">
           <p id="adjustUserInfo"></p>
           <div class="form-group">
-            <label for="newCoffeeCount">New Coffee Count</label>
-            <input type="number" id="newCoffeeCount" min="0" required>
+            <label for="newCoffeeCount">New Tab Amount (€)</label>
+            <input type="number" id="newCoffeeCount" min="0" step="0.01" required>
           </div>
         </div>
         <div class="modal-actions">

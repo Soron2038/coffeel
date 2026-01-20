@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
-  coffee_count INTEGER DEFAULT 0,
+  current_tab REAL DEFAULT 0,          -- Current unpaid amount in EUR (before Pay-Request)
   pending_payment REAL DEFAULT 0,      -- Amount after Pay-Request (not yet confirmed)
   account_balance REAL DEFAULT 0,      -- Credit (+) / Debt (-) balance
   last_payment_request DATETIME,       -- Timestamp of last Pay click
@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS payments (
   user_id INTEGER NOT NULL,
   amount REAL NOT NULL,
   type TEXT NOT NULL CHECK(type IN ('request', 'received')),
-  coffee_count INTEGER,                -- Number of coffees at payment request time
   confirmed_by_admin BOOLEAN DEFAULT 0,
   admin_notes TEXT,                    -- Optional: Admin notes for the payment
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

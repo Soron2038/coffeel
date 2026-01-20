@@ -150,10 +150,10 @@ const api = {
     return this.request(`/users/${userId}/permanent`, { method: 'DELETE' });
   },
 
-  setCoffeeCount(userId, count) {
-    return this.request(`/users/${userId}/coffee-count`, {
+  setCurrentTab(userId, amount) {
+    return this.request(`/users/${userId}/current-tab`, {
       method: 'PUT',
-      body: JSON.stringify({ count }),
+      body: JSON.stringify({ amount }),
     });
   },
 
@@ -294,7 +294,7 @@ async function loadSettings() {
 function updateSummary() {
   elements.totalUsers.textContent = activeUsers.length;
 
-  const totalPending = activeUsers.reduce((sum, u) => sum + u.pendingPayment, 0);
+  const totalPending = activeUsers.reduce((sum, u) => sum + (u.pendingPayment || 0), 0);
   elements.totalPending.textContent = `€${totalPending.toFixed(2)}`;
 
   const totalCredit = activeUsers
@@ -302,10 +302,9 @@ function updateSummary() {
     .reduce((sum, u) => sum + u.accountBalance, 0);
   elements.totalCredit.textContent = `€${totalCredit.toFixed(2)}`;
 
-  const totalDebt = activeUsers
-    .filter(u => u.accountBalance < 0)
-    .reduce((sum, u) => sum + Math.abs(u.accountBalance), 0);
-  elements.totalDebt.textContent = `€${totalDebt.toFixed(2)}`;
+  // Total outstanding = currentTab + pendingPayment (all unpaid amounts)
+  const totalOutstanding = activeUsers.reduce((sum, u) => sum + (u.currentTab || 0) + (u.pendingPayment || 0), 0);
+  elements.totalDebt.textContent = `€${totalOutstanding.toFixed(2)}`;
 }
 
 // ============================================
@@ -315,26 +314,28 @@ function updateSummary() {
 // Render user row (shared between active/deleted tables)
 function renderUserRow(user, isDeleted) {
   const name = `<strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong>`;
-  const pendingClass = user.pendingPayment > 0 ? 'pending-amount' : '';
+  const currentTab = user.currentTab || 0;
+  const pendingPayment = user.pendingPayment || 0;
+  const pendingClass = pendingPayment > 0 ? 'pending-amount' : '';
   const dateCol = isDeleted 
     ? (user.deletedAt ? formatDate(user.deletedAt) : '-')
     : (user.lastPaymentRequest ? formatDate(user.lastPaymentRequest) : '-');
   
   const actions = isDeleted ? `
     <button class="btn btn-primary btn-sm" onclick="restoreUser(${user.id})">Restore</button>
-    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 ? 'disabled' : ''}>Confirm Payment</button>
+    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${pendingPayment <= 0 ? 'disabled' : ''}>Confirm Payment</button>
     <button class="btn btn-danger btn-sm" onclick="confirmPermanentDelete(${user.id})">Delete</button>
   ` : `
-    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${user.pendingPayment <= 0 && user.coffeeCount <= 0 ? 'disabled' : ''}>Confirm Payment</button>
+    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${pendingPayment <= 0 && currentTab <= 0 ? 'disabled' : ''}>Confirm Payment</button>
     <button class="btn btn-outline btn-sm" onclick="openAdjustModal(${user.id})">Adjust</button>
-    ${user.coffeeCount > 0 ? `<button class="btn btn-warning btn-sm" onclick="sendPaymentRequest(${user.id})">Send Request</button>` : ''}
+    ${currentTab > 0 ? `<button class="btn btn-warning btn-sm" onclick="sendPaymentRequest(${user.id})">Send Request</button>` : ''}
   `;
 
   return `<tr data-user-id="${user.id}">
     <td>${name}</td>
     <td>${escapeHtml(user.email)}</td>
-    <td>${user.coffeeCount}</td>
-    <td class="${pendingClass}">${formatPending(user.pendingPayment)}</td>
+    <td>€${currentTab.toFixed(2)}</td>
+    <td class="${pendingClass}">${formatPending(pendingPayment)}</td>
     <td class="${getBalanceClass(user.accountBalance)}">${formatBalance(user.accountBalance)}</td>
     <td>${dateCol}</td>
     <td><div class="action-btns">${actions}</div></td>
@@ -380,7 +381,6 @@ function renderPayments() {
         </span>
       </td>
       <td>€${payment.amount.toFixed(2)}</td>
-      <td>${payment.coffeeCount || '-'}</td>
       <td>${payment.adminNotes ? escapeHtml(payment.adminNotes) : '-'}</td>
     </tr>
   `).join('');
@@ -465,15 +465,16 @@ async function submitPaymentConfirmation() {
 }
 
 // ============================================
-// Adjust Coffee Modal
+// Adjust Tab Modal
 // ============================================
 
 function openAdjustModal(userId) {
   const user = findUser(userId);
   if (!user) return;
   currentModalUserId = userId;
-  elements.adjustUserInfo.textContent = `${user.firstName} ${user.lastName} - Current: ${user.coffeeCount} coffees`;
-  elements.newCoffeeCount.value = user.coffeeCount;
+  const currentTab = user.currentTab || 0;
+  elements.adjustUserInfo.textContent = `${user.firstName} ${user.lastName} - Current Tab: €${currentTab.toFixed(2)}`;
+  elements.newCoffeeCount.value = currentTab.toFixed(2);
   openModal(elements.adjustCoffeeModal, elements.newCoffeeCount);
 }
 
@@ -481,11 +482,11 @@ function closeAdjustModal() { closeModal(elements.adjustCoffeeModal); }
 
 async function submitCoffeeAdjustment() {
   if (!currentModalUserId) return;
-  const count = parseInt(elements.newCoffeeCount.value, 10);
-  if (isNaN(count) || count < 0) return showToast('Please enter a valid count', 'error');
+  const amount = parseFloat(elements.newCoffeeCount.value);
+  if (isNaN(amount) || amount < 0) return showToast('Please enter a valid amount', 'error');
   try {
-    await api.setCoffeeCount(currentModalUserId, count);
-    showToast('Coffee count updated', 'success');
+    await api.setCurrentTab(currentModalUserId, amount);
+    showToast('Tab updated', 'success');
     closeAdjustModal();
     loadUsers();
   } catch (error) { showToast(error.message, 'error'); }

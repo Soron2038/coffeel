@@ -26,18 +26,16 @@ describe('Payment Logic', () => {
   describe('Payment Request Calculation', () => {
     /**
      * Test exact payment scenario
-     * User has coffees, no credit, pays exact amount
+     * User has tab, no credit, pays exact amount
      */
     test('exact payment - no existing credit', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = coffeeCount * coffeePrice; // 10 * 0.5 = 5.00
+      const totalCost = user.currentTab;
 
       // Calculate what should happen
       const availableCredit = Math.max(0, user.accountBalance); // 0
@@ -51,14 +49,14 @@ describe('Payment Logic', () => {
       // Simulate payment request update
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, totalCost, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
       expect(updatedUser.pending_payment).toBe(5.0);
       expect(updatedUser.account_balance).toBe(-5.0);
     });
@@ -69,7 +67,7 @@ describe('Payment Logic', () => {
      */
     test('overpayment - creates credit', () => {
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 5.0,
         accountBalance: -5.0,
       });
@@ -100,7 +98,7 @@ describe('Payment Logic', () => {
      */
     test('partial payment - reduces pending', () => {
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 10.0,
         accountBalance: -10.0,
       });
@@ -127,14 +125,12 @@ describe('Payment Logic', () => {
      */
     test('prepayment - credit covers partial cost', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 3.0, // Has €3 credit
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = coffeeCount * coffeePrice; // 10 * 0.5 = 5.00
+      const totalCost = user.currentTab;
 
       const availableCredit = Math.max(0, user.accountBalance); // 3.0
       const creditApplied = Math.min(availableCredit, totalCost); // 3.0
@@ -147,14 +143,14 @@ describe('Payment Logic', () => {
       // Simulate payment request with credit application
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, totalCost, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
       expect(updatedUser.pending_payment).toBe(2.0); // Only unpaid portion
       expect(updatedUser.account_balance).toBe(-2.0); // 3 - 5 = -2
     });
@@ -165,14 +161,12 @@ describe('Payment Logic', () => {
      */
     test('credit covers entire cost - no payment needed', () => {
       const user = createTestUser(db, {
-        coffeeCount: 4,
+        currentTab: 2.0, // €2.00 tab
         pendingPayment: 0,
         accountBalance: 5.0, // Has €5 credit
       });
 
-      const coffeeCount = user.coffeeCount;
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = coffeeCount * coffeePrice; // 4 * 0.5 = 2.00
+      const totalCost = user.currentTab;
 
       const availableCredit = Math.max(0, user.accountBalance); // 5.0
       const creditApplied = Math.min(availableCredit, totalCost); // 2.0
@@ -184,13 +178,13 @@ describe('Payment Logic', () => {
       // When credit covers all, only deduct from balance, no pending
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(totalCost, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
       expect(updatedUser.pending_payment).toBe(0); // No pending created
       expect(updatedUser.account_balance).toBe(3.0); // 5 - 2 = 3 credit remains
     });
@@ -202,18 +196,16 @@ describe('Payment Logic', () => {
     test('credit application on subsequent payment', () => {
       // Initial state: user paid, has credit
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 0,
         accountBalance: 2.5, // Credit from previous overpayment
       });
 
-      // User drinks 8 coffees
-      db.prepare('UPDATE users SET coffee_count = 8 WHERE id = ?').run(user.id);
+      // User drinks 8 coffees (adds €4.00 to tab at €0.50 each)
+      db.prepare('UPDATE users SET current_tab = ? WHERE id = ?').run(4.0, user.id);
 
       const currentUser = getUserById(db, user.id);
-      const coffeeCount = currentUser.coffee_count;
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = coffeeCount * coffeePrice; // 8 * 0.5 = 4.00
+      const totalCost = currentUser.current_tab; // €4.00
 
       const availableCredit = Math.max(0, currentUser.account_balance); // 2.5
       const creditApplied = Math.min(availableCredit, totalCost); // 2.5
@@ -224,14 +216,14 @@ describe('Payment Logic', () => {
       // Apply credit and create pending for remainder
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
       `).run(amountToPay, totalCost, user.id);
 
       const updatedUser = getUserById(db, user.id);
-      expect(updatedUser.coffee_count).toBe(0);
+      expect(updatedUser.current_tab).toBe(0);
       expect(updatedUser.pending_payment).toBe(1.5);
       expect(updatedUser.account_balance).toBe(-1.5); // 2.5 - 4 = -1.5
     });
@@ -239,17 +231,17 @@ describe('Payment Logic', () => {
 
   describe('Edge Cases', () => {
     /**
-     * Test zero coffees - should not create payment
+     * Test zero tab - should not create payment
      */
-    test('zero coffees - no payment created', () => {
+    test('zero tab - no payment created', () => {
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeeCount = user.coffeeCount;
-      expect(coffeeCount).toBe(0);
+      const currentTab = user.currentTab;
+      expect(currentTab).toBe(0);
       // Payment request should be rejected at service level
     });
 
@@ -258,14 +250,12 @@ describe('Payment Logic', () => {
      */
     test('handles decimal precision correctly', () => {
       const user = createTestUser(db, {
-        coffeeCount: 3,
+        currentTab: 1.5, // €1.50 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = Math.round(3 * coffeePrice * 100) / 100;
-      expect(totalCost).toBe(1.5);
+      expect(user.currentTab).toBe(1.5);
     });
 
     /**
@@ -273,29 +263,27 @@ describe('Payment Logic', () => {
      */
     test('multiple sequential payments accumulate correctly', () => {
       const user = createTestUser(db, {
-        coffeeCount: 10,
+        currentTab: 5.0, // €5.00 tab
         pendingPayment: 0,
         accountBalance: 0,
       });
 
-      const coffeePrice = getCoffeePrice(db);
-
-      // First payment request: 10 coffees = €5
+      // First payment request: €5 tab
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + 5.0,
           account_balance = account_balance - 5.0
         WHERE id = ?
       `).run(user.id);
 
-      // Add more coffees before payment
-      db.prepare('UPDATE users SET coffee_count = 6 WHERE id = ?').run(user.id);
+      // Add more to tab before payment
+      db.prepare('UPDATE users SET current_tab = 3.0 WHERE id = ?').run(user.id);
 
-      // Second payment request: 6 coffees = €3
+      // Second payment request: €3 tab
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + 3.0,
           account_balance = account_balance - 3.0
         WHERE id = ?
@@ -311,13 +299,12 @@ describe('Payment Logic', () => {
      */
     test('payment request with existing debt', () => {
       const user = createTestUser(db, {
-        coffeeCount: 4,
+        currentTab: 2.0, // €2.00 tab
         pendingPayment: 5.0,
         accountBalance: -5.0, // Already owes €5
       });
 
-      const coffeePrice = getCoffeePrice(db);
-      const totalCost = 4 * coffeePrice; // 2.00
+      const totalCost = user.currentTab; // 2.00
 
       // No credit available (balance is negative)
       const availableCredit = Math.max(0, user.accountBalance); // 0
@@ -325,7 +312,7 @@ describe('Payment Logic', () => {
 
       db.prepare(`
         UPDATE users SET 
-          coffee_count = 0,
+          current_tab = 0,
           pending_payment = pending_payment + ?,
           account_balance = account_balance - ?
         WHERE id = ?
@@ -340,7 +327,7 @@ describe('Payment Logic', () => {
   describe('Payment Confirmation', () => {
     test('confirms exact pending amount', () => {
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 5.0,
         accountBalance: -5.0,
       });
@@ -362,7 +349,7 @@ describe('Payment Logic', () => {
 
     test('payment record is created', () => {
       const user = createTestUser(db, {
-        coffeeCount: 0,
+        currentTab: 0,
         pendingPayment: 5.0,
         accountBalance: -5.0,
       });
