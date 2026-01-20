@@ -18,7 +18,7 @@ If the server is already set up, use this one-liner from your development machin
 
 ```bash
 rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
-  /path/to/coffeel/ user@server:/opt/coffeel/ && \
+  /localpath/to/coffeel/ user@server:/opt/coffeel/ && \
   ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
 ```
 
@@ -27,7 +27,7 @@ Or step by step:
 ```bash
 # 1. Sync files (excludes data and config)
 rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
-  /path/to/coffeel/ user@server:/opt/coffeel/
+  /localpath/to/coffeel/ user@server:/opt/coffeel/
 
 # 2. Install dependencies and restart
 ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
@@ -93,7 +93,7 @@ cd /opt/coffeel
 
 ```bash
 rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' \
-  /path/to/local/coffeel/ user@server:/opt/coffeel/
+  /localpath/to/coffeel/ user@server:/opt/coffeel/
 ```
 
 ### Install Dependencies

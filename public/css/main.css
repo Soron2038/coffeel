@@ -89,7 +89,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Background logo watermark */
+/* Background logo watermark - behind everything */
 body::before {
   content: '';
   position: fixed;
@@ -101,7 +101,7 @@ body::before {
   background: url('/images/logo.png') center/contain no-repeat;
   opacity: 0.08;
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;
 }
 
 /* Prevent pull-to-refresh on iOS */
@@ -280,20 +280,21 @@ body {
   gap: 10px;
 }
 
-/* User Card - Clean horizontal layout */
+/* User Card - Clean horizontal layout, semi-transparent to show logo behind */
 .user-card {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.75);
   border-radius: var(--radius-lg);
   padding: 10px var(--space-3);
   box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  transition: box-shadow var(--transition-fast);
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
 .user-card:hover {
   box-shadow: var(--shadow-md);
+  background: rgba(255, 249, 240, 0.9);
 }
 
 /* User Info - Left section, takes available space */
@@ -781,12 +782,20 @@ body {
    ============================================ */
 
 /* Transition for idle mode */
+.header {
+  transition: transform 0.5s ease, background 0.5s ease;
+}
+
 .main,
 body::before {
   transition: opacity 0.5s ease;
 }
 
-/* Idle mode: hide user list, show prominent logo */
+/* Idle mode: slide header up, hide user list, show prominent logo */
+body.idle-mode .header {
+  transform: translateY(-100%);
+}
+
 body.idle-mode .main {
   opacity: 0;
   pointer-events: none;

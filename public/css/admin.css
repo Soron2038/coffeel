@@ -53,7 +53,7 @@ body {
   min-height: 100vh;
 }
 
-/* Background logo watermark */
+/* Background logo watermark - behind everything */
 body::before {
   content: '';
   position: fixed;
@@ -65,7 +65,7 @@ body::before {
   background: url('/images/logo.png') center/contain no-repeat;
   opacity: 0.07;
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;
 }
 
 /* App Container */
@@ -114,7 +114,7 @@ body::before {
    ============================================ */
 
 .admin-nav {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.85);
   border-bottom: 1px solid var(--color-gray-200);
   padding: 0 24px;
   display: flex;
@@ -198,7 +198,7 @@ body::before {
 }
 
 .summary-card {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.75);
   border-radius: var(--radius-md);
   padding: 20px;
   box-shadow: var(--shadow-sm);
@@ -226,7 +226,7 @@ body::before {
    ============================================ */
 
 .user-table-container {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.75);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -365,7 +365,7 @@ body::before {
    ============================================ */
 
 .settings-form {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.75);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   padding: 24px;
@@ -550,7 +550,7 @@ body::before {
 }
 
 .modal {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.92);
   border-radius: var(--radius-lg);
   width: 100%;
   max-width: 480px;
@@ -638,7 +638,7 @@ body::before {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.92);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   min-width: 280px;
@@ -691,7 +691,7 @@ body::before {
    ============================================ */
 
 .add-admin-form {
-  background: var(--color-white);
+  background: rgba(255, 249, 240, 0.75);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   padding: 20px;
