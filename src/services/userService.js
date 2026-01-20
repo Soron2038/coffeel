@@ -2,6 +2,24 @@ const db = require('../db/database');
 const { validateUserInput, sanitizeInput } = require('../utils/validation');
 const logger = require('../utils/logger');
 
+// Lazy-loaded to avoid circular dependencies
+let emailService = null;
+let paymentService = null;
+
+const getEmailService = () => {
+  if (!emailService) {
+    emailService = require('./emailService');
+  }
+  return emailService;
+};
+
+const getPaymentService = () => {
+  if (!paymentService) {
+    paymentService = require('./paymentService');
+  }
+  return paymentService;
+};
+
 /**
  * Get all users, optionally including deleted ones
  * @param {boolean} includeDeleted - Whether to include soft-deleted users
@@ -59,13 +77,13 @@ const getUserByEmail = (email) => {
 };
 
 /**
- * Create a new user
+ * Create a new user (or reactivate if soft-deleted)
  * @param {string} firstName - First name
  * @param {string} lastName - Last name
  * @param {string} email - Email address
  * @returns {Object} Result with user or error
  */
-const createUser = (firstName, lastName, email) => {
+const createUser = async (firstName, lastName, email) => {
   // Sanitize inputs
   const cleanFirstName = sanitizeInput(firstName);
   const cleanLastName = sanitizeInput(lastName);
@@ -77,23 +95,61 @@ const createUser = (firstName, lastName, email) => {
     return { success: false, error: validation.errors.join(', ') };
   }
 
-  // Check for duplicate email (case-insensitive)
+  // Check for existing user with same email
   const existing = getUserByEmail(cleanEmail);
+  
+  // If user exists and is soft-deleted, reactivate them
+  if (existing && existing.deletedByUser) {
+    try {
+      // Update name (might have changed) and reactivate
+      db.run(
+        `UPDATE users SET 
+          first_name = ?, 
+          last_name = ?, 
+          deleted_by_user = 0, 
+          deleted_at = NULL 
+        WHERE id = ?`,
+        [cleanFirstName, cleanLastName, existing.id]
+      );
+
+      logAudit(existing.id, 'restore', 1, 0, null, 'user');
+      logger.info('User reactivated via registration', { userId: existing.id, email: cleanEmail });
+
+      const reactivatedUser = getUserById(existing.id);
+      
+      // Send welcome back email (async, don't wait)
+      getEmailService().sendWelcomeEmail(reactivatedUser, true).catch(err => {
+        logger.warn('Failed to send welcome email on reactivation', { error: err.message, userId: existing.id });
+      });
+
+      return { success: true, user: reactivatedUser, reactivated: true };
+    } catch (err) {
+      logger.error('Failed to reactivate user', { error: err.message, userId: existing.id });
+      return { success: false, error: 'Failed to reactivate user' };
+    }
+  }
+
+  // If user exists and is active, reject
   if (existing) {
     return { success: false, error: 'Email already exists' };
   }
 
+  // Create new user
   try {
     const result = db.run(
       'INSERT INTO users (first_name, last_name, email) VALUES (?, ?, ?)',
       [cleanFirstName, cleanLastName, cleanEmail]
     );
 
-    // Log to audit
     logAudit(result.lastInsertRowid, 'user_created', null, null, null, 'user');
 
     const newUser = getUserById(result.lastInsertRowid);
     logger.info('User created', { userId: newUser.id, email: cleanEmail });
+
+    // Send welcome email (async, don't wait)
+    getEmailService().sendWelcomeEmail(newUser, false).catch(err => {
+      logger.warn('Failed to send welcome email', { error: err.message, userId: newUser.id });
+    });
 
     return { success: true, user: newUser };
   } catch (err) {
@@ -104,10 +160,12 @@ const createUser = (firstName, lastName, email) => {
 
 /**
  * Soft delete a user (self-service)
+ * If user has outstanding debt, automatically sends payment request email
  * @param {number} id - User ID
+ * @param {string} reason - Reason for deletion ('user' or 'inactivity')
  * @returns {Object} Result with user or error
  */
-const softDeleteUser = (id) => {
+const softDeleteUser = async (id, reason = 'user') => {
   const user = getUserById(id);
   if (!user) {
     return { success: false, error: 'User not found' };
@@ -117,16 +175,39 @@ const softDeleteUser = (id) => {
     return { success: false, error: 'User already deleted' };
   }
 
+  // Check for outstanding debt (currentTab + pendingPayment)
+  const outstandingDebt = user.currentTab + user.pendingPayment;
+  let paymentEmailSent = false;
+
   try {
+    // If there's unpaid tab, trigger payment request first
+    if (user.currentTab > 0) {
+      const paymentResult = await getPaymentService().requestPayment(id);
+      if (paymentResult.success) {
+        paymentEmailSent = paymentResult.payment?.emailSent || false;
+        logger.info('Auto-payment request on soft-delete', { 
+          userId: id, 
+          amount: user.currentTab,
+          emailSent: paymentEmailSent 
+        });
+      }
+    }
+
+    // Now soft-delete the user
     db.run(
       'UPDATE users SET deleted_by_user = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?',
       [id]
     );
 
-    logAudit(id, 'soft_delete', 0, 1, null, 'user');
-    logger.info('User soft-deleted', { userId: id });
+    logAudit(id, 'soft_delete', 0, 1, null, reason);
+    logger.info('User soft-deleted', { userId: id, reason, hadDebt: outstandingDebt > 0 });
 
-    return { success: true, user: getUserById(id) };
+    return { 
+      success: true, 
+      user: getUserById(id),
+      paymentEmailSent,
+      outstandingDebt,
+    };
   } catch (err) {
     logger.error('Failed to soft delete user', { error: err.message, userId: id });
     return { success: false, error: 'Failed to delete user' };
@@ -341,6 +422,72 @@ const adjustBalance = (id, amount, notes = '') => {
   }
 };
 
+/**
+ * Get users inactive for more than specified days
+ * Inactivity = no updated_at change (no coffee increment, payment, etc.)
+ * @param {number} days - Number of days of inactivity
+ * @returns {Array} Array of inactive users
+ */
+const getInactiveUsers = (days = 365) => {
+  const users = db.all(
+    `SELECT * FROM users 
+     WHERE deleted_by_user = 0 
+     AND updated_at < datetime('now', '-' || ? || ' days')`,
+    [days]
+  );
+  return users.map(formatUser);
+};
+
+/**
+ * Soft-delete all users inactive for more than 1 year
+ * Sends payment request email if they have outstanding debt
+ * @returns {Object} Result with count of deleted users
+ */
+const cleanupInactiveUsers = async () => {
+  const inactiveUsers = getInactiveUsers(365);
+  
+  if (inactiveUsers.length === 0) {
+    logger.info('No inactive users to cleanup');
+    return { success: true, deletedCount: 0, users: [] };
+  }
+
+  const results = [];
+  
+  for (const user of inactiveUsers) {
+    try {
+      const result = await softDeleteUser(user.id, 'inactivity');
+      results.push({
+        userId: user.id,
+        email: user.email,
+        success: result.success,
+        paymentEmailSent: result.paymentEmailSent || false,
+        outstandingDebt: result.outstandingDebt || 0,
+      });
+    } catch (err) {
+      logger.error('Failed to cleanup inactive user', { userId: user.id, error: err.message });
+      results.push({
+        userId: user.id,
+        email: user.email,
+        success: false,
+        error: err.message,
+      });
+    }
+  }
+
+  const deletedCount = results.filter(r => r.success).length;
+  logger.info('Inactive users cleanup completed', { 
+    total: inactiveUsers.length, 
+    deleted: deletedCount 
+  });
+
+  return { 
+    success: true, 
+    deletedCount, 
+    total: inactiveUsers.length,
+    users: results 
+  };
+};
+
 // Helper function to format user object from database row
 const formatUser = (row) => ({
   id: row.id,
@@ -382,4 +529,6 @@ module.exports = {
   decrementTab,
   setCurrentTab,
   adjustBalance,
+  getInactiveUsers,
+  cleanupInactiveUsers,
 };

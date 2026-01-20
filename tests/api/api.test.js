@@ -18,6 +18,7 @@ process.env.LOG_LEVEL = 'error';
 jest.mock('../../src/services/emailService', () => ({
   sendPaymentRequest: jest.fn().mockResolvedValue({ success: true, messageId: 'mock-id' }),
   sendPaymentRequestByAmount: jest.fn().mockResolvedValue({ success: true, messageId: 'mock-id' }),
+  sendWelcomeEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'mock-welcome-id' }),
 }));
 
 const { createTestDatabase, closeTestDatabase } = require('../helpers');

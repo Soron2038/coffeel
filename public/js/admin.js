@@ -343,11 +343,25 @@ function renderUserRow(user, isDeleted) {
 }
 
 function renderActiveUsers() {
-  if (activeUsers.length === 0) {
-    elements.activeUsersBody.innerHTML = '<tr><td colspan="7" class="empty-message">No active users found.</td></tr>';
+  // Apply filter
+  const filterEl = document.getElementById('filterPending');
+  const filter = filterEl ? filterEl.value : 'all';
+  
+  let filteredUsers = activeUsers;
+  if (filter === 'pending') {
+    filteredUsers = activeUsers.filter(u => (u.pendingPayment || 0) > 0);
+  } else if (filter === 'tab') {
+    filteredUsers = activeUsers.filter(u => (u.currentTab || 0) > 0);
+  } else if (filter === 'debt') {
+    filteredUsers = activeUsers.filter(u => (u.currentTab || 0) + (u.pendingPayment || 0) > 0);
+  }
+
+  if (filteredUsers.length === 0) {
+    const message = filter === 'all' ? 'No active users found.' : 'No users match the current filter.';
+    elements.activeUsersBody.innerHTML = `<tr><td colspan="7" class="empty-message">${message}</td></tr>`;
     return;
   }
-  elements.activeUsersBody.innerHTML = activeUsers.map(u => renderUserRow(u, false)).join('');
+  elements.activeUsersBody.innerHTML = filteredUsers.map(u => renderUserRow(u, false)).join('');
 }
 
 function renderDeletedUsers() {
@@ -795,6 +809,12 @@ function init() {
   // Settings form
   elements.settingsForm.addEventListener('submit', saveSettings);
   elements.testSmtpBtn.addEventListener('click', testSmtp);
+
+  // Active users filter
+  const filterPending = document.getElementById('filterPending');
+  if (filterPending) {
+    filterPending.addEventListener('change', renderActiveUsers);
+  }
 
   // Export
   elements.exportCsvBtn.addEventListener('click', exportCsv);

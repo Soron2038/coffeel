@@ -371,6 +371,146 @@ This is an automated message.
 };
 
 /**
+ * Send welcome email to new or reactivated user
+ * @param {Object} user - User object
+ * @param {boolean} isReactivation - Whether this is a reactivation (vs new registration)
+ * @returns {Object} Result with success status
+ */
+const sendWelcomeEmail = async (user, isReactivation = false) => {
+  const coffeePrice = settingsService.getCoffeePrice();
+  const adminEmail = settingsService.getAdminEmail();
+
+  const emailContent = generateWelcomeEmail(user, coffeePrice, isReactivation);
+
+  try {
+    const transport = getTransporter();
+    const smtpConfig = getSmtpConfig();
+    
+    if (!smtpConfig.host) {
+      return { success: false, error: 'SMTP host not configured' };
+    }
+
+    const subject = isReactivation 
+      ? `Welcome back to CofFeEL, ${user.firstName}!`
+      : `Welcome to CofFeEL, ${user.firstName}!`;
+
+    const mailOptions = {
+      from: smtpConfig.from,
+      to: user.email,
+      cc: adminEmail,
+      subject,
+      text: emailContent.text,
+      html: emailContent.html,
+    };
+
+    const info = await transport.sendMail(mailOptions);
+    
+    logger.info('Welcome email sent', {
+      userId: user.id,
+      email: user.email,
+      isReactivation,
+      messageId: info.messageId,
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    logger.error('Failed to send welcome email', {
+      error: err.message,
+      userId: user.id,
+      email: user.email,
+    });
+
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * Generate welcome email content
+ */
+const generateWelcomeEmail = (user, coffeePrice, isReactivation) => {
+  const greeting = isReactivation ? 'Welcome back' : 'Welcome';
+  const intro = isReactivation
+    ? 'Your account has been reactivated. We\'re glad to have you back!'
+    : 'Your account has been created. You can now start tracking your coffee consumption!';
+
+  const text = `
+${greeting} ${user.firstName}!
+
+${intro}
+
+=== How It Works ===
+1. Find your name in the kiosk
+2. Tap + when you take a coffee
+3. Tap "Pay" when you're ready to settle your tab
+4. Transfer the amount to our bank account
+
+=== Current Coffee Price ===
+€${coffeePrice.toFixed(2)} per cup
+
+Enjoy your coffee!
+
+---
+CofFeEL - Coffee Tracking System
+This is an automated message.
+`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background: #8b5a2b; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+    .content { background: #faf8f5; padding: 20px; border: 1px solid #c9ad8c; }
+    .info-box { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+    .price-box { background: #f5ebe0; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #8b5a2b; text-align: center; }
+    .price { font-size: 28px; font-weight: bold; color: #8b5a2b; }
+    .footer { padding: 15px; text-align: center; color: #7a5f45; font-size: 12px; }
+    ol { padding-left: 20px; }
+    li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin: 0;">☕ ${greeting} to CofFeEL!</h1>
+    </div>
+    <div class="content">
+      <p>Hello ${user.firstName},</p>
+      <p>${intro}</p>
+      
+      <div class="info-box">
+        <h3 style="margin-top: 0;">How It Works</h3>
+        <ol>
+          <li>Find your name in the kiosk</li>
+          <li>Tap <strong>+</strong> when you take a coffee</li>
+          <li>Tap <strong>Pay</strong> when you're ready to settle your tab</li>
+          <li>Transfer the amount to our bank account</li>
+        </ol>
+      </div>
+      
+      <div class="price-box">
+        <p style="margin: 0; color: #7a5f45;">Current Coffee Price</p>
+        <p class="price" style="margin: 5px 0;">€${coffeePrice.toFixed(2)}</p>
+        <p style="margin: 0; color: #7a5f45; font-size: 14px;">per cup</p>
+      </div>
+      
+      <p>Enjoy your coffee! ☕</p>
+    </div>
+    <div class="footer">
+      <p>CofFeEL - Coffee Tracking System<br>This is an automated message.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return { text, html };
+};
+
+/**
  * Verify SMTP connection
  * @returns {Object} Result with success status
  */
@@ -440,6 +580,7 @@ const sendTestEmail = async (toEmail) => {
 module.exports = {
   sendPaymentRequest,
   sendPaymentRequestByAmount,
+  sendWelcomeEmail,
   verifyConnection,
   resetTransporter,
   sendTestEmail,

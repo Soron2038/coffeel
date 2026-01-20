@@ -38,6 +38,15 @@
         <div class="section-header">
           <h2>Active Users</h2>
           <div class="section-actions">
+            <div class="filter-group" style="display: inline-flex; align-items: center; gap: 8px; margin-right: 12px;">
+              <label for="filterPending" style="margin: 0; font-size: 14px;">Filter:</label>
+              <select id="filterPending" style="padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc;">
+                <option value="all">All Users</option>
+                <option value="pending">With Pending</option>
+                <option value="tab">With Tab</option>
+                <option value="debt">With Any Debt</option>
+              </select>
+            </div>
             <button class="btn btn-primary btn-sm" id="exportCsvBtn">Export CSV</button>
           </div>
         </div>

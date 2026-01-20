@@ -28,19 +28,23 @@ router.get('/users/:id', validateIdParam, asyncHandler(async (req, res) => {
   res.json(user);
 }));
 
-// POST /api/users - Create new user
+// POST /api/users - Create new user (or reactivate soft-deleted)
 router.post('/users', asyncHandler(async (req, res) => {
   const { firstName, lastName, email } = req.body;
-  const result = userService.createUser(firstName, lastName, email);
+  const result = await userService.createUser(firstName, lastName, email);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }
-  res.status(201).json(result.user);
+  res.status(201).json({
+    ...result.user,
+    reactivated: result.reactivated || false,
+  });
 }));
 
 // DELETE /api/users/:id - Soft delete user (self-service)
+// Automatically sends payment request if user has outstanding tab
 router.delete('/users/:id', validateIdParam, asyncHandler(async (req, res) => {
-  const result = userService.softDeleteUser(req.userId);
+  const result = await userService.softDeleteUser(req.userId);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }
@@ -48,7 +52,11 @@ router.delete('/users/:id', validateIdParam, asyncHandler(async (req, res) => {
     id: result.user.id,
     deletedByUser: result.user.deletedByUser,
     deletedAt: result.user.deletedAt,
-    message: 'User soft-deleted successfully',
+    paymentEmailSent: result.paymentEmailSent || false,
+    outstandingDebt: result.outstandingDebt || 0,
+    message: result.paymentEmailSent 
+      ? 'User deleted. Payment request sent for outstanding balance.'
+      : 'User soft-deleted successfully',
   });
 }));
 
@@ -328,6 +336,23 @@ router.delete('/admin/users/:id', requireAdmin, asyncHandler(async (req, res) =>
     return res.status(400).json({ error: result.error });
   }
   res.json({ success: true });
+}));
+
+// ============================================
+// MAINTENANCE ENDPOINTS (Admin only)
+// ============================================
+
+// POST /api/admin/cleanup-inactive - Soft-delete users inactive for 1+ year
+router.post('/admin/cleanup-inactive', requireAdmin, asyncHandler(async (req, res) => {
+  const result = await userService.cleanupInactiveUsers();
+  res.json(result);
+}));
+
+// GET /api/admin/inactive-users - Preview users that would be cleaned up
+router.get('/admin/inactive-users', requireAdmin, asyncHandler(async (req, res) => {
+  const days = parseInt(req.query.days, 10) || 365;
+  const users = userService.getInactiveUsers(days);
+  res.json({ count: users.length, users });
 }));
 
 // ============================================
