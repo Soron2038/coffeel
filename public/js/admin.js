@@ -15,6 +15,8 @@ let adminUsers = [];
 let genericConfirmCallback = null;
 let currentAdminUser = null;
 let currentModalUserId = null; // Shared across modals
+let pollInterval = null;
+const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
 
 // ============================================
 // DOM Elements
@@ -811,6 +813,33 @@ function init() {
   // Initial load
   loadCurrentUser();
   loadUsers();
+  
+  // Start polling for updates
+  startPolling();
+}
+
+// ============================================
+// Polling - Auto-refresh data
+// ============================================
+
+function startPolling() {
+  if (pollInterval) return;
+  pollInterval = setInterval(async () => {
+    try {
+      const newUsers = await api.getUsers(true);
+      // Only re-render if data changed
+      if (JSON.stringify(newUsers) !== JSON.stringify(allUsers)) {
+        allUsers = newUsers;
+        activeUsers = allUsers.filter(u => !u.deletedByUser);
+        deletedUsers = allUsers.filter(u => u.deletedByUser);
+        renderActiveUsers();
+        renderDeletedUsers();
+        updateSummary();
+      }
+    } catch (error) {
+      console.warn('Polling failed:', error.message);
+    }
+  }, POLL_INTERVAL_MS);
 }
 
 // Make functions available globally for onclick handlers

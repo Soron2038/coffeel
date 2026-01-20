@@ -5,26 +5,27 @@
 
 /* CSS Variables */
 :root {
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-light: #eff6ff;
-  --color-success: #10b981;
-  --color-success-light: #d1fae5;
-  --color-warning: #f59e0b;
-  --color-warning-light: #fef3c7;
-  --color-danger: #ef4444;
-  --color-danger-light: #fee2e2;
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #6b7280;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
-  --color-white: #ffffff;
+  /* Colors - Warm Brown Coffee Theme */
+  --color-primary: #8b5a2b;
+  --color-primary-hover: #6d4522;
+  --color-primary-light: #f5ebe0;
+  --color-success: #5d7a4a;
+  --color-success-light: #e8f0e3;
+  --color-warning: #c9943a;
+  --color-warning-light: #fdf6e3;
+  --color-danger: #a94442;
+  --color-danger-light: #f8e8e8;
+  --color-gray-50: #faf8f5;
+  --color-gray-100: #d8c0a2;
+  --color-gray-200: #c9ad8c;
+  --color-gray-300: #b89b76;
+  --color-gray-400: #9a7b5b;
+  --color-gray-500: #7a5f45;
+  --color-gray-600: #5c4633;
+  --color-gray-700: #4a3728;
+  --color-gray-800: #3a2a1d;
+  --color-gray-900: #2a1e14;
+  --color-white: #fff9f0;
 
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -50,6 +51,21 @@ body {
   color: var(--color-gray-800);
   background: var(--color-gray-100);
   min-height: 100vh;
+}
+
+/* Background logo watermark */
+body::before {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100vmin;
+  height: 100vmin;
+  background: url('/images/logo.png') center/contain no-repeat;
+  opacity: 0.07;
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* App Container */

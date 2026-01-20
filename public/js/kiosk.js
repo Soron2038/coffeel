@@ -13,6 +13,11 @@ let searchQuery = '';
 let debounceTimer = null;
 let buttonDebounceTimers = {};
 let coffeePrice = 0.50; // Default, loaded from server
+let pollInterval = null;
+let idleTimeout = null;
+let isIdle = false;
+const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const IDLE_TIMEOUT_MS = 60000; // Idle after 60 seconds
 
 // ============================================
 // DOM Elements
@@ -536,10 +541,81 @@ async function init() {
   try {
     users = await api.getUsers();
     renderUserList();
+    
+    // Start polling for updates
+    startPolling();
+    
+    // Setup idle detection
+    setupIdleDetection();
   } catch (error) {
     elements.loading.style.display = 'none';
     showToast('Failed to load users: ' + error.message, 'error');
   }
+}
+
+// ============================================
+// Polling - Auto-refresh data
+// ============================================
+
+function startPolling() {
+  if (pollInterval) return;
+  pollInterval = setInterval(async () => {
+    try {
+      const newUsers = await api.getUsers();
+      // Only re-render if data changed
+      if (JSON.stringify(newUsers) !== JSON.stringify(users)) {
+        users = newUsers;
+        filterUsers();
+      }
+    } catch (error) {
+      console.warn('Polling failed:', error.message);
+    }
+  }, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+}
+
+// ============================================
+// Idle Screen - Show logo when inactive
+// ============================================
+
+function resetIdleTimer() {
+  // Clear existing timeout
+  if (idleTimeout) clearTimeout(idleTimeout);
+  
+  // If currently idle, wake up
+  if (isIdle) wakeFromIdle();
+  
+  // Set new timeout
+  idleTimeout = setTimeout(enterIdleMode, IDLE_TIMEOUT_MS);
+}
+
+function enterIdleMode() {
+  if (isIdle) return;
+  isIdle = true;
+  document.body.classList.add('idle-mode');
+}
+
+function wakeFromIdle() {
+  if (!isIdle) return;
+  isIdle = false;
+  document.body.classList.remove('idle-mode');
+}
+
+function setupIdleDetection() {
+  // Events that reset idle timer
+  const activityEvents = ['click', 'touchstart', 'keydown', 'input', 'scroll'];
+  activityEvents.forEach(event => {
+    document.addEventListener(event, resetIdleTimer, { passive: true });
+  });
+  
+  // Start initial timer
+  resetIdleTimer();
 }
 
 // Start the app
