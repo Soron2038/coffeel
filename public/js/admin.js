@@ -12,6 +12,7 @@ let deletedUsers = [];
 let payments = [];
 let settings = {};
 let adminUsers = [];
+let backups = [];
 let genericConfirmCallback = null;
 let currentAdminUser = null;
 let currentModalUserId = null; // Shared across modals
@@ -101,6 +102,14 @@ const elements = {
   addAdminForm: document.getElementById('addAdminForm'),
   newAdminUsername: document.getElementById('newAdminUsername'),
   newAdminPassword: document.getElementById('newAdminPassword'),
+
+  // Backups
+  backupsBody: document.getElementById('backupsBody'),
+  noBackups: document.getElementById('noBackups'),
+  createBackupBtn: document.getElementById('createBackupBtn'),
+  uploadBackupBtn: document.getElementById('uploadBackupBtn'),
+  backupFileInput: document.getElementById('backupFileInput'),
+  uploadStatus: document.getElementById('uploadStatus'),
 
   // Change Password Modal
   changePasswordModal: document.getElementById('changePasswordModal'),
@@ -224,6 +233,26 @@ const api = {
   deleteAdminUser(userId) {
     return this.request(`/admin/users/${userId}`, { method: 'DELETE' });
   },
+
+  // Backups
+  getBackups() {
+    return this.request('/admin/backups');
+  },
+
+  createBackup() {
+    return this.request('/admin/backup', { method: 'POST' });
+  },
+
+  restoreBackup(filename) {
+    return this.request('/admin/restore', {
+      method: 'POST',
+      body: JSON.stringify({ filename }),
+    });
+  },
+
+  deleteBackup(filename) {
+    return this.request(`/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+  },
 };
 
 // ============================================
@@ -246,6 +275,8 @@ function switchTab(tabId) {
     loadSettings();
   } else if (tabId === 'admin-users') {
     loadAdminUsers();
+  } else if (tabId === 'backups') {
+    loadBackups();
   }
 }
 
@@ -677,6 +708,132 @@ function confirmDeleteAdmin(userId, username) {
 }
 
 // ============================================
+// Backups
+// ============================================
+
+async function loadBackups() {
+  try {
+    backups = await api.getBackups();
+    renderBackups();
+  } catch (error) {
+    showToast('Failed to load backups: ' + error.message, 'error');
+  }
+}
+
+function renderBackups() {
+  if (backups.length === 0) {
+    elements.backupsBody.innerHTML = '';
+    elements.noBackups.style.display = 'block';
+    return;
+  }
+  elements.noBackups.style.display = 'none';
+  elements.backupsBody.innerHTML = backups.map(b => `
+    <tr>
+      <td><code>${escapeHtml(b.filename)}</code></td>
+      <td>${b.sizeMB} MB</td>
+      <td>${formatDate(b.createdAt)}</td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-secondary btn-sm" onclick="downloadBackup('${escapeHtml(b.filename)}')">Download</button>
+          <button class="btn btn-primary btn-sm" onclick="confirmRestoreBackup('${escapeHtml(b.filename)}')">Restore</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteBackup('${escapeHtml(b.filename)}')">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function createBackup() {
+  try {
+    elements.createBackupBtn.disabled = true;
+    elements.createBackupBtn.textContent = 'Creating...';
+    
+    const result = await api.createBackup();
+    showToast(`Backup created: ${result.filename} (${result.sizeMB} MB)`, 'success');
+    loadBackups();
+  } catch (error) {
+    showToast('Failed to create backup: ' + error.message, 'error');
+  } finally {
+    elements.createBackupBtn.disabled = false;
+    elements.createBackupBtn.textContent = 'Create Backup';
+  }
+}
+
+function confirmRestoreBackup(filename) {
+  showGenericConfirm({
+    title: 'Restore Database',
+    message: `Are you sure you want to restore from "${filename}"? A safety backup will be created automatically before restore. The application may briefly disconnect.`,
+    onConfirm: async () => {
+      try {
+        const result = await api.restoreBackup(filename);
+        showToast(`Database restored! Safety backup: ${result.safetyBackup}`, 'success');
+        // Reload the page to refresh all data
+        setTimeout(() => window.location.reload(), 1500);
+      } catch (error) {
+        showToast('Restore failed: ' + error.message, 'error');
+      }
+    },
+  });
+}
+
+function confirmDeleteBackup(filename) {
+  showGenericConfirm({
+    title: 'Delete Backup',
+    message: `Are you sure you want to delete "${filename}"? This cannot be undone.`,
+    onConfirm: async () => {
+      try {
+        await api.deleteBackup(filename);
+        showToast('Backup deleted', 'success');
+        loadBackups();
+      } catch (error) {
+        showToast('Delete failed: ' + error.message, 'error');
+      }
+    },
+  });
+}
+
+function downloadBackup(filename) {
+  window.location.href = `/api/admin/backups/${encodeURIComponent(filename)}/download`;
+}
+
+async function uploadBackup(file) {
+  if (!file || !file.name.endsWith('.db')) {
+    showToast('Please select a .db file', 'error');
+    return;
+  }
+  
+  elements.uploadStatus.textContent = 'Uploading...';
+  elements.uploadBackupBtn.disabled = true;
+  
+  try {
+    const response = await fetch('/api/admin/backups/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Filename': file.name,
+      },
+      body: file,
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Upload failed');
+    }
+    
+    elements.uploadStatus.textContent = '';
+    showToast(`Backup uploaded: ${result.filename}`, 'success');
+    loadBackups();
+  } catch (error) {
+    elements.uploadStatus.textContent = '';
+    showToast('Upload failed: ' + error.message, 'error');
+  } finally {
+    elements.uploadBackupBtn.disabled = false;
+    elements.backupFileInput.value = '';
+  }
+}
+
+// ============================================
 // Logout
 // ============================================
 
@@ -831,6 +988,13 @@ function init() {
     if (e.target === elements.changePasswordModal) closePasswordModal();
   });
 
+  // Backups
+  elements.createBackupBtn.addEventListener('click', createBackup);
+  elements.uploadBackupBtn.addEventListener('click', () => elements.backupFileInput.click());
+  elements.backupFileInput.addEventListener('change', (e) => {
+    if (e.target.files[0]) uploadBackup(e.target.files[0]);
+  });
+
   // Initial load
   loadCurrentUser();
   loadUsers();
@@ -871,6 +1035,9 @@ window.confirmPermanentDelete = confirmPermanentDelete;
 window.sendPaymentRequest = sendPaymentRequest;
 window.openPasswordModal = openPasswordModal;
 window.confirmDeleteAdmin = confirmDeleteAdmin;
+window.confirmRestoreBackup = confirmRestoreBackup;
+window.confirmDeleteBackup = confirmDeleteBackup;
+window.downloadBackup = downloadBackup;
 
 // Start
 document.addEventListener('DOMContentLoaded', init);

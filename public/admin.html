@@ -29,6 +29,7 @@
       <button class="nav-tab" data-tab="payments">Payment History</button>
       <button class="nav-tab" data-tab="settings">Settings</button>
       <button class="nav-tab" data-tab="admin-users">Admin Users</button>
+      <button class="nav-tab" data-tab="backups">Backups</button>
     </nav>
 
     <!-- Main Content -->
@@ -299,6 +300,43 @@
             <button type="button" class="btn btn-secondary" id="testSmtpBtn">Test SMTP</button>
           </div>
         </form>
+      </section>
+
+      <!-- Backups Tab -->
+      <section class="tab-content" id="backups">
+        <div class="section-header">
+          <h2>Database Backups</h2>
+          <div class="section-actions">
+            <button class="btn btn-primary btn-sm" id="createBackupBtn">Create Backup</button>
+          </div>
+        </div>
+        <p class="section-description">Create and restore database backups. A safety backup is automatically created before each restore.</p>
+
+        <div class="user-table-container">
+          <table class="data-table" id="backupsTable">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Size</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="backupsBody">
+              <!-- Backups will be rendered here -->
+            </tbody>
+          </table>
+          <div class="empty-message" id="noBackups" style="display: none;">
+            No backups found. Click "Create Backup" to create your first backup.
+          </div>
+        </div>
+
+        <div class="upload-section" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">Restore from external backup:</p>
+          <input type="file" id="backupFileInput" accept=".db" style="display: none;">
+          <button class="btn btn-outline btn-sm" id="uploadBackupBtn" style="color: #6b7280;">Upload Backup File...</button>
+          <span id="uploadStatus" style="margin-left: 12px; font-size: 13px; color: #6b7280;"></span>
+        </div>
       </section>
     </main>
 

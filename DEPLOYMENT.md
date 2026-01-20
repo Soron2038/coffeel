@@ -148,6 +148,18 @@ This creates the SQLite database with schema and a default admin user: `admin` /
 
 **Important:** Change the admin password immediately after first login!
 
+### Restore from Backup (if migrating from another server)
+
+If you have a backup from a previous installation:
+
+1. Copy the backup file to the server
+2. Place it in `/opt/coffeel/data/backups/`
+3. Start the application: `pm2 start src/server.js --name coffeel`
+4. Go to Admin Panel → Backups tab
+5. Click "Restore" on your backup file
+
+Alternatively, use the Upload feature in Admin Panel → Backups to upload a `.db` file directly from your computer.
+
 ### Set Permissions (optional, for stricter security)
 
 ```bash
@@ -275,9 +287,23 @@ Certbot sets up automatic renewal. Test it:
 sudo certbot renew --dry-run
 ```
 
-## 6. Automated Backups
+## 6. Backups
 
-### Create Backup Script
+### Admin Panel Backup (Recommended)
+
+The easiest way to manage backups is through the Admin Panel:
+
+1. Go to Admin Panel → **Backups** tab
+2. Click **"Create Backup"** to create a new backup
+3. Use **"Download"** to save backups to your local machine
+4. Use **"Upload Backup File..."** to upload a backup from another server
+5. Use **"Restore"** to restore from any backup (a safety backup is created automatically)
+
+Backups are stored in `/opt/coffeel/data/backups/`.
+
+### Automated Daily Backups (Optional)
+
+For additional safety, set up automated backups:
 
 ```bash
 sudo nano /opt/coffeel/scripts/daily-backup.sh
@@ -287,7 +313,7 @@ sudo nano /opt/coffeel/scripts/daily-backup.sh
 #!/bin/bash
 # CofFeEL Daily Backup Script
 
-BACKUP_DIR="/opt/coffeel/backups"
+BACKUP_DIR="/opt/coffeel/data/backups"
 DB_PATH="/opt/coffeel/data/coffee.db"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=30
@@ -296,35 +322,22 @@ KEEP_DAYS=30
 mkdir -p $BACKUP_DIR
 
 # Create backup with SQLite online backup
-sqlite3 $DB_PATH ".backup '$BACKUP_DIR/coffee_$DATE.db'"
+sqlite3 $DB_PATH ".backup '$BACKUP_DIR/coffeel_auto_$DATE.db'"
 
-# Compress backup
-gzip $BACKUP_DIR/coffee_$DATE.db
+# Remove old auto-backups (older than KEEP_DAYS)
+find $BACKUP_DIR -name "coffeel_auto_*.db" -mtime +$KEEP_DAYS -delete
 
-# Remove old backups (older than KEEP_DAYS)
-find $BACKUP_DIR -name "coffee_*.db.gz" -mtime +$KEEP_DAYS -delete
-
-# Log backup
-echo "$(date): Backup created - coffee_$DATE.db.gz" >> /var/log/coffeel/backup.log
+echo "$(date): Backup created" >> /var/log/coffeel-backup.log
 ```
 
-### Make Executable
+### Make Executable & Setup Cron
 
 ```bash
 sudo chmod +x /opt/coffeel/scripts/daily-backup.sh
-sudo chown coffeel:coffeel /opt/coffeel/scripts/daily-backup.sh
-```
 
-### Setup Cron Job (Daily at 3 AM)
-
-```bash
-sudo -u coffeel crontab -e
-```
-
-Add:
-
-```cron
-0 3 * * * /opt/coffeel/scripts/daily-backup.sh
+# Add to crontab (daily at 3 AM)
+crontab -e
+# Add line: 0 3 * * * /opt/coffeel/scripts/daily-backup.sh
 ```
 
 ## 7. Firewall Configuration
@@ -462,8 +475,11 @@ sudo certbot renew
 # Check database integrity
 sqlite3 /opt/coffeel/data/coffee.db "PRAGMA integrity_check;"
 
-# Restore from backup
-cp /opt/coffeel/backups/coffee_LATEST.db /opt/coffeel/data/coffee.db
+# Restore from backup (easiest via Admin Panel → Backups → Restore)
+# Or manually:
+pm2 stop coffeel
+cp /opt/coffeel/data/backups/coffeel_YOURBACKUP.db /opt/coffeel/data/coffee.db
+pm2 start coffeel
 ```
 
 ## Security Checklist
@@ -496,9 +512,22 @@ cp /opt/coffeel/backups/coffee_LATEST.db /opt/coffeel/data/coffee.db
 - **SQLite**: Embedded database (file-based, no separate server)
 - **PM2**: Process manager with auto-restart and log management
 
+## Disaster Recovery
+
+If the server is completely lost:
+
+1. **Set up a new server** following "Fresh Server Setup" above
+2. **Upload your backup** via Admin Panel → Backups → "Upload Backup File..."
+3. **Restore** by clicking "Restore" on the uploaded backup
+4. **Verify** all users and payments are present
+5. **Update DNS** if the IP address changed
+
+**Tip:** Regularly download backups to your local machine for off-site storage.
+
 ## Support
 
 For issues, check:
 1. PM2 logs: `pm2 logs coffeel`
 2. Nginx error logs: `sudo tail /var/log/nginx/error.log`
-3. Application health: `curl localhost:3000/api/users`
+3. Application health: `curl localhost:3000/api/health`
+4. Database integrity: `sqlite3 /opt/coffeel/data/coffee.db "PRAGMA integrity_check;"`

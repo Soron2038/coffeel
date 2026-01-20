@@ -5,6 +5,8 @@ const userService = require('../services/userService');
 const paymentService = require('../services/paymentService');
 const settingsService = require('../services/settingsService');
 const adminUserService = require('../services/adminUserService');
+const db = require('../db/database');
+const logger = require('../utils/logger');
 const { requireAdmin } = require('./admin');
 const { validateIdParam, validatePaymentAmount, asyncHandler } = require('../utils/validation');
 
@@ -252,9 +254,13 @@ router.get('/export/csv', requireAdmin, asyncHandler(async (req, res) => {
   const paymentRows = data.payments.map(p => [p.id, p.userId, p.userName, p.userEmail, p.amount, p.type, p.confirmedByAdmin ? 'Yes' : 'No', p.adminNotes || '', p.createdAt]);
   const paymentsCSV = [paymentHeaders.join(','), ...paymentRows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
 
-  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="coffeel-export-${new Date().toISOString().slice(0,10)}.csv"`);
-  res.send(`USERS\n${usersCSV}\n\nPAYMENTS\n${paymentsCSV}`);
+  // UTF-8 BOM for encoding detection (works in most programs, Excel Mac may still need manual import)
+  const csvContent = `USERS\n${usersCSV}\n\nPAYMENTS\n${paymentsCSV}`;
+  const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+  const content = Buffer.from(csvContent, 'utf8');
+  res.send(Buffer.concat([BOM, content]));
 }));
 
 // GET /api/export/json - Export data as JSON
@@ -353,6 +359,205 @@ router.get('/admin/inactive-users', requireAdmin, asyncHandler(async (req, res) 
   const days = parseInt(req.query.days, 10) || 365;
   const users = userService.getInactiveUsers(days);
   res.json({ count: users.length, users });
+}));
+
+// ============================================
+// BACKUP ENDPOINTS (Admin only)
+// ============================================
+
+const fs = require('fs');
+const pathModule = require('path');
+const BACKUP_DIR = process.env.BACKUP_DIR || pathModule.join(__dirname, '../../data/backups');
+
+// Ensure backup directory exists
+if (!fs.existsSync(BACKUP_DIR)) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+// GET /api/admin/backups - List all backups
+router.get('/admin/backups', requireAdmin, asyncHandler(async (req, res) => {
+  const files = fs.readdirSync(BACKUP_DIR)
+    .filter(f => f.endsWith('.db'))
+    .map(filename => {
+      const filePath = pathModule.join(BACKUP_DIR, filename);
+      const stats = fs.statSync(filePath);
+      return {
+        filename,
+        size: stats.size,
+        sizeMB: (stats.size / 1024 / 1024).toFixed(2),
+        createdAt: stats.mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  res.json(files);
+}));
+
+// POST /api/admin/backup - Create a new backup
+router.post('/admin/backup', requireAdmin, asyncHandler(async (req, res) => {
+  const timestamp = new Date().toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .slice(0, 19);
+  const backupFilename = `coffeel_${timestamp}.db`;
+  const backupPath = pathModule.join(BACKUP_DIR, backupFilename);
+  
+  const database = db.getDb();
+  await database.backup(backupPath);
+  
+  const stats = fs.statSync(backupPath);
+  logger.info('Manual backup created', { filename: backupFilename, size: stats.size });
+  
+  res.json({
+    success: true,
+    filename: backupFilename,
+    size: stats.size,
+    sizeMB: (stats.size / 1024 / 1024).toFixed(2),
+  });
+}));
+
+// POST /api/admin/restore - Restore from a backup
+router.post('/admin/restore', requireAdmin, asyncHandler(async (req, res) => {
+  const { filename } = req.body;
+  
+  if (!filename || !filename.endsWith('.db')) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
+  }
+  
+  const backupPath = pathModule.join(BACKUP_DIR, filename);
+  
+  // Security check: prevent path traversal
+  if (!backupPath.startsWith(BACKUP_DIR)) {
+    return res.status(400).json({ error: 'Invalid backup path' });
+  }
+  
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: 'Backup file not found' });
+  }
+  
+  // Create a safety backup before restore
+  const safetyTimestamp = new Date().toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .slice(0, 19);
+  const safetyBackupFilename = `coffeel_${safetyTimestamp}_pre-restore.db`;
+  const safetyBackupPath = pathModule.join(BACKUP_DIR, safetyBackupFilename);
+  
+  const database = db.getDb();
+  await database.backup(safetyBackupPath);
+  logger.info('Safety backup created before restore', { filename: safetyBackupFilename });
+  
+  // Close current connection
+  db.close();
+  
+  // Copy backup over main database
+  fs.copyFileSync(backupPath, db.DB_PATH);
+  
+  // Reopen connection (will happen automatically on next getDb() call)
+  logger.info('Database restored from backup', { filename });
+  
+  res.json({
+    success: true,
+    message: `Restored from ${filename}`,
+    safetyBackup: safetyBackupFilename,
+  });
+}));
+
+// POST /api/admin/backups/upload - Upload a backup file
+router.post('/admin/backups/upload', requireAdmin, asyncHandler(async (req, res) => {
+  // Check content type
+  if (!req.is('application/octet-stream')) {
+    return res.status(400).json({ error: 'Invalid content type. Expected application/octet-stream' });
+  }
+  
+  // Get filename from header
+  const originalFilename = req.get('X-Filename');
+  if (!originalFilename || !originalFilename.endsWith('.db')) {
+    return res.status(400).json({ error: 'Invalid or missing filename. Must end with .db' });
+  }
+  
+  // Sanitize filename and add upload timestamp
+  const sanitized = originalFilename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const timestamp = new Date().toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .slice(0, 19);
+  const filename = `uploaded_${timestamp}_${sanitized}`;
+  const filePath = pathModule.join(BACKUP_DIR, filename);
+  
+  // Collect the raw body data
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const buffer = Buffer.concat(chunks);
+  
+  // Basic SQLite validation (check magic header)
+  const SQLITE_MAGIC = 'SQLite format 3';
+  if (buffer.length < 16 || buffer.slice(0, 15).toString() !== SQLITE_MAGIC) {
+    return res.status(400).json({ error: 'Invalid file. Not a valid SQLite database.' });
+  }
+  
+  // Write file
+  fs.writeFileSync(filePath, buffer);
+  
+  const stats = fs.statSync(filePath);
+  logger.info('Backup uploaded', { filename, size: stats.size });
+  
+  res.json({
+    success: true,
+    filename,
+    size: stats.size,
+    sizeMB: (stats.size / 1024 / 1024).toFixed(2),
+  });
+}));
+
+// GET /api/admin/backups/:filename/download - Download a backup
+router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async (req, res) => {
+  const { filename } = req.params;
+  
+  if (!filename || !filename.endsWith('.db')) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
+  }
+  
+  const backupPath = pathModule.join(BACKUP_DIR, filename);
+  
+  // Security check: prevent path traversal
+  if (!backupPath.startsWith(BACKUP_DIR)) {
+    return res.status(400).json({ error: 'Invalid backup path' });
+  }
+  
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: 'Backup file not found' });
+  }
+  
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.sendFile(backupPath);
+}));
+
+// DELETE /api/admin/backups/:filename - Delete a backup
+router.delete('/admin/backups/:filename', requireAdmin, asyncHandler(async (req, res) => {
+  const { filename } = req.params;
+  
+  if (!filename || !filename.endsWith('.db')) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
+  }
+  
+  const backupPath = pathModule.join(BACKUP_DIR, filename);
+  
+  // Security check: prevent path traversal
+  if (!backupPath.startsWith(BACKUP_DIR)) {
+    return res.status(400).json({ error: 'Invalid backup path' });
+  }
+  
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: 'Backup file not found' });
+  }
+  
+  fs.unlinkSync(backupPath);
+  logger.info('Backup deleted', { filename });
+  
+  res.json({ success: true });
 }));
 
 // ============================================

@@ -11,11 +11,11 @@ const requireAdmin = (req, res, next) => {
   
   logger.warn('Unauthorized admin access attempt', {
     ip: req.ip,
-    path: req.path,
+    path: req.originalUrl,
   });
   
-  // For API requests, return JSON error
-  if (req.path.startsWith('/api/')) {
+  // For API requests, return JSON error (use originalUrl to check full path)
+  if (req.originalUrl.startsWith('/api/')) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
