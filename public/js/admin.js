@@ -357,7 +357,7 @@ function renderUserRow(user, isDeleted) {
     <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${pendingPayment <= 0 ? 'disabled' : ''}>Confirm Payment</button>
     <button class="btn btn-danger btn-sm" onclick="confirmPermanentDelete(${user.id})">Delete</button>
   ` : `
-    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${pendingPayment <= 0 && currentTab <= 0 ? 'disabled' : ''}>Confirm Payment</button>
+    <button class="btn btn-success btn-sm" onclick="openPaymentModal(${user.id})" ${pendingPayment <= 0 ? 'disabled' : ''}>Confirm Payment</button>
     <button class="btn btn-outline btn-sm" onclick="openAdjustModal(${user.id})">Adjust</button>
     ${currentTab > 0 ? `<button class="btn btn-warning btn-sm" onclick="sendPaymentRequest(${user.id})">Send Request</button>` : ''}
   `;
