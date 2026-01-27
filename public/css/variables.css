@@ -1,0 +1,44 @@
+/* ============================================
+   CofFeEL - Shared CSS Variables
+   Used by both main.css and admin.css
+   ============================================ */
+
+:root {
+  /* Colors - Warm Brown Coffee Theme */
+  --color-primary: #8b5a2b;
+  --color-primary-hover: #6d4522;
+  --color-primary-light: #f5ebe0;
+  --color-success: #5d7a4a;
+  --color-success-light: #e8f0e3;
+  --color-warning: #c9943a;
+  --color-warning-light: #fdf6e3;
+  --color-danger: #a94442;
+  --color-danger-light: #f8e8e8;
+  --color-gray-50: #faf8f5;
+  --color-gray-100: #d8c0a2;
+  --color-gray-200: #c9ad8c;
+  --color-gray-300: #b89b76;
+  --color-gray-400: #9a7b5b;
+  --color-gray-500: #7a5f45;
+  --color-gray-600: #5c4633;
+  --color-gray-700: #4a3728;
+  --color-gray-800: #3a2a1d;
+  --color-gray-900: #2a1e14;
+  --color-white: #fff9f0;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+}

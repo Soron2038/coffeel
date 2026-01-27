@@ -374,6 +374,26 @@ if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
+// Helper function to generate backup timestamp
+const generateBackupTimestamp = () => {
+  return new Date().toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .slice(0, 19);
+};
+
+// Helper function to validate backup path (prevents path traversal)
+const validateBackupPath = (filename) => {
+  if (!filename || !filename.endsWith('.db')) {
+    return { valid: false, error: 'Invalid backup filename' };
+  }
+  const fullPath = pathModule.join(BACKUP_DIR, filename);
+  if (!fullPath.startsWith(BACKUP_DIR)) {
+    return { valid: false, error: 'Invalid backup path' };
+  }
+  return { valid: true, path: fullPath };
+};
+
 // GET /api/admin/backups - List all backups
 router.get('/admin/backups', requireAdmin, asyncHandler(async (req, res) => {
   const files = fs.readdirSync(BACKUP_DIR)
@@ -394,10 +414,7 @@ router.get('/admin/backups', requireAdmin, asyncHandler(async (req, res) => {
 
 // POST /api/admin/backup - Create a new backup
 router.post('/admin/backup', requireAdmin, asyncHandler(async (req, res) => {
-  const timestamp = new Date().toISOString()
-    .replace(/[:.]/g, '-')
-    .replace('T', '_')
-    .slice(0, 19);
+  const timestamp = generateBackupTimestamp();
   const backupFilename = `coffeel_${timestamp}.db`;
   const backupPath = pathModule.join(BACKUP_DIR, backupFilename);
   
@@ -418,27 +435,19 @@ router.post('/admin/backup', requireAdmin, asyncHandler(async (req, res) => {
 // POST /api/admin/restore - Restore from a backup
 router.post('/admin/restore', requireAdmin, asyncHandler(async (req, res) => {
   const { filename } = req.body;
-  
-  if (!filename || !filename.endsWith('.db')) {
-    return res.status(400).json({ error: 'Invalid backup filename' });
+
+  const validation = validateBackupPath(filename);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
-  
-  const backupPath = pathModule.join(BACKUP_DIR, filename);
-  
-  // Security check: prevent path traversal
-  if (!backupPath.startsWith(BACKUP_DIR)) {
-    return res.status(400).json({ error: 'Invalid backup path' });
-  }
-  
+  const backupPath = validation.path;
+
   if (!fs.existsSync(backupPath)) {
     return res.status(404).json({ error: 'Backup file not found' });
   }
-  
+
   // Create a safety backup before restore
-  const safetyTimestamp = new Date().toISOString()
-    .replace(/[:.]/g, '-')
-    .replace('T', '_')
-    .slice(0, 19);
+  const safetyTimestamp = generateBackupTimestamp();
   const safetyBackupFilename = `coffeel_${safetyTimestamp}_pre-restore.db`;
   const safetyBackupPath = pathModule.join(BACKUP_DIR, safetyBackupFilename);
   
@@ -477,10 +486,7 @@ router.post('/admin/backups/upload', requireAdmin, asyncHandler(async (req, res)
   
   // Sanitize filename and add upload timestamp
   const sanitized = originalFilename.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const timestamp = new Date().toISOString()
-    .replace(/[:.]/g, '-')
-    .replace('T', '_')
-    .slice(0, 19);
+  const timestamp = generateBackupTimestamp();
   const filename = `uploaded_${timestamp}_${sanitized}`;
   const filePath = pathModule.join(BACKUP_DIR, filename);
   
@@ -514,18 +520,13 @@ router.post('/admin/backups/upload', requireAdmin, asyncHandler(async (req, res)
 // GET /api/admin/backups/:filename/download - Download a backup
 router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async (req, res) => {
   const { filename } = req.params;
-  
-  if (!filename || !filename.endsWith('.db')) {
-    return res.status(400).json({ error: 'Invalid backup filename' });
+
+  const validation = validateBackupPath(filename);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
-  
-  const backupPath = pathModule.join(BACKUP_DIR, filename);
-  
-  // Security check: prevent path traversal
-  if (!backupPath.startsWith(BACKUP_DIR)) {
-    return res.status(400).json({ error: 'Invalid backup path' });
-  }
-  
+  const backupPath = validation.path;
+
   if (!fs.existsSync(backupPath)) {
     return res.status(404).json({ error: 'Backup file not found' });
   }
@@ -538,18 +539,13 @@ router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async
 // DELETE /api/admin/backups/:filename - Delete a backup
 router.delete('/admin/backups/:filename', requireAdmin, asyncHandler(async (req, res) => {
   const { filename } = req.params;
-  
-  if (!filename || !filename.endsWith('.db')) {
-    return res.status(400).json({ error: 'Invalid backup filename' });
+
+  const validation = validateBackupPath(filename);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
-  
-  const backupPath = pathModule.join(BACKUP_DIR, filename);
-  
-  // Security check: prevent path traversal
-  if (!backupPath.startsWith(BACKUP_DIR)) {
-    return res.status(400).json({ error: 'Invalid backup path' });
-  }
-  
+  const backupPath = validation.path;
+
   if (!fs.existsSync(backupPath)) {
     return res.status(404).json({ error: 'Backup file not found' });
   }
