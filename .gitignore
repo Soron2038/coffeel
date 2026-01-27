@@ -76,3 +76,6 @@ certs/
 *.pem
 *.key
 *.crt
+
+# OMC Files
+.omc/*
