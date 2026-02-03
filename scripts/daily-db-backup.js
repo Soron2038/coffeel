@@ -2,7 +2,7 @@
 // scripts/daily-db-backup.js
 
 // Cron:
-// 0 3 * * * cd /pfad/zu/coffeel && node scripts/backup-email.js
+// 0 3 * * * cd /opt/coffeel && node scripts/backup-email.js
 
 
 const Database = require('better-sqlite3');
