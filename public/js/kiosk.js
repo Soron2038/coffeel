@@ -137,11 +137,11 @@ function renderUserCard(user) {
   // Total amount owed = currentTab (unpaid) + pendingPayment (awaiting confirmation)
   const totalOwed = (user.currentTab || 0) + (user.pendingPayment || 0);
   const displayAmount = totalOwed.toFixed(2);
-  
+
   // Show pending badge if there's an unconfirmed payment
   const hasPending = user.pendingPayment > 0;
-  const pendingBadge = hasPending 
-    ? `<span class="status-badge status-pending">⏳ Pending</span>` 
+  const pendingBadge = hasPending
+    ? `<span class="status-badge status-pending">⏳ Pending</span>`
     : '';
 
   return `
@@ -233,8 +233,8 @@ async function handleCoffeeChange(e) {
   if (!user) return;
 
   const oldTab = user.currentTab || 0;
-  const newTab = action === 'increment' 
-    ? oldTab + coffeePrice 
+  const newTab = action === 'increment'
+    ? oldTab + coffeePrice
     : Math.max(0, oldTab - coffeePrice);
 
   updateUserCard(userId, { currentTab: Math.round(newTab * 100) / 100 });
@@ -541,10 +541,10 @@ async function init() {
   try {
     users = await api.getUsers();
     renderUserList();
-    
+
     // Start polling for updates
     startPolling();
-    
+
     // Setup idle detection
     setupIdleDetection();
   } catch (error) {
@@ -587,10 +587,10 @@ function stopPolling() {
 function resetIdleTimer() {
   // Clear existing timeout
   if (idleTimeout) clearTimeout(idleTimeout);
-  
+
   // If currently idle, wake up
   if (isIdle) wakeFromIdle();
-  
+
   // Set new timeout
   idleTimeout = setTimeout(enterIdleMode, IDLE_TIMEOUT_MS);
 }
@@ -598,6 +598,12 @@ function resetIdleTimer() {
 function enterIdleMode() {
   if (isIdle) return;
   isIdle = true;
+
+  // Remove focus from search input to hide iPad keyboard
+  if (document.activeElement) {
+    document.activeElement.blur();
+  }
+
   document.body.classList.add('idle-mode');
 }
 
@@ -613,7 +619,7 @@ function setupIdleDetection() {
   activityEvents.forEach(event => {
     document.addEventListener(event, resetIdleTimer, { passive: true });
   });
-  
+
   // Start initial timer
   resetIdleTimer();
 }
