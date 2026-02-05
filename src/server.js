@@ -56,16 +56,26 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Request logging (development only)
-if (NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    logger.debug(`${req.method} ${req.path}`, {
-      query: req.query,
-      body: req.method === 'POST' || req.method === 'PUT' ? req.body : undefined,
-    });
-    next();
+// Request logging for API routes
+app.use('/api', (req, res, next) => {
+  const startTime = Date.now();
+  
+  // Log incoming request
+  logger.info(`→ ${req.method} ${req.originalUrl}`, {
+    body: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
+    query: Object.keys(req.query).length > 0 ? req.query : undefined,
+    session: req.session?.adminUser ? `admin:${req.session.adminUser.username}` : 'none',
   });
-}
+  
+  // Log response when finished
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    const logLevel = res.statusCode >= 400 ? 'warn' : 'info';
+    logger[logLevel](`← ${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)`);
+  });
+  
+  next();
+});
 
 // ============================================
 // STATIC FILES
@@ -91,6 +101,7 @@ app.use('/api', apiRouter);
 
 // 404 handler for API routes
 app.use('/api/*', (req, res) => {
+  logger.warn(`404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
