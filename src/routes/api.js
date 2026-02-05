@@ -541,9 +541,23 @@ router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async
     return res.status(404).json({ error: 'Backup file not found' });
   }
   
+  const stats = fs.statSync(backupPath);
+  
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.sendFile(backupPath);
+  res.setHeader('Content-Length', stats.size);
+  
+  // Use callback to ensure response completes properly
+  return new Promise((resolve, reject) => {
+    res.sendFile(backupPath, (err) => {
+      if (err) {
+        logger.error('Error sending backup file', { filename, error: err.message });
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
 }));
 
 // DELETE /api/admin/backups/:filename - Delete a backup
