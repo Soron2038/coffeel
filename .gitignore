@@ -81,5 +81,7 @@ certs/
 .omc/*
 .claude/*
 
-# Update Script
+# Server-Side Service Scripts
 UPDATE.sh
+RESET_DB.sh
+DEPLOY.sh
