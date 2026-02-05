@@ -827,32 +827,15 @@ function confirmDeleteBackup(filename) {
   });
 }
 
-async function downloadBackup(filename) {
-  console.log('[downloadBackup] Using fetch+blob method for:', filename);
-  try {
-    showToast('Starting download...', 'info');
-    
-    const response = await fetch(`/api/admin/backups/${encodeURIComponent(filename)}/download`);
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Download failed');
-    }
-    
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    showToast('Download complete', 'success');
-  } catch (error) {
-    showToast('Download failed: ' + error.message, 'error');
-  }
+function downloadBackup(filename) {
+  // Direct link approach - works reliably over HTTP
+  const a = document.createElement('a');
+  a.href = `/api/admin/backups/${encodeURIComponent(filename)}/download`;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 async function uploadBackup(file) {
