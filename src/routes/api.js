@@ -562,8 +562,14 @@ router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async
       reject(err);
     });
     
-    stream.on('end', () => {
+    // Wait for response to finish sending (not just stream reading)
+    res.on('finish', () => {
       resolve();
+    });
+    
+    res.on('error', (err) => {
+      logger.error('Response error during backup download', { filename, error: err.message });
+      reject(err);
     });
     
     stream.pipe(res);

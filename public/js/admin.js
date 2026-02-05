@@ -827,8 +827,31 @@ function confirmDeleteBackup(filename) {
   });
 }
 
-function downloadBackup(filename) {
-  window.location.href = `/api/admin/backups/${encodeURIComponent(filename)}/download`;
+async function downloadBackup(filename) {
+  try {
+    showToast('Starting download...', 'info');
+    
+    const response = await fetch(`/api/admin/backups/${encodeURIComponent(filename)}/download`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Download failed');
+    }
+    
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('Download complete', 'success');
+  } catch (error) {
+    showToast('Download failed: ' + error.message, 'error');
+  }
 }
 
 async function uploadBackup(file) {
