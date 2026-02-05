@@ -828,6 +828,7 @@ function confirmDeleteBackup(filename) {
 }
 
 async function downloadBackup(filename) {
+  console.log('[downloadBackup] Using fetch+blob method for:', filename);
   try {
     showToast('Starting download...', 'info');
     
