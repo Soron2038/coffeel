@@ -132,11 +132,22 @@ fetch_updates() {
     info "Fetching updates from remote repository..."
     cd "$INSTALL_DIR"
     
+    # Detect the default branch (main or master)
+    local default_branch
+    if git rev-parse --verify origin/main &>/dev/null; then
+        default_branch="main"
+    elif git rev-parse --verify origin/master &>/dev/null; then
+        default_branch="master"
+    else
+        error "Could not detect default branch (main/master)"
+    fi
+    info "Using branch: $default_branch"
+    
     # Stash any local changes (like .env modifications)
     local has_changes=false
-    if ! git diff --quiet; then
+    if ! git diff --quiet 2>/dev/null; then
         warn "Local changes detected, stashing..."
-        git stash
+        git stash push -m "UPDATE.sh auto-stash $(date +%Y%m%d_%H%M%S)"
         has_changes=true
     fi
     
@@ -144,7 +155,7 @@ fetch_updates() {
     git fetch origin
     
     local local_hash=$(git rev-parse HEAD)
-    local remote_hash=$(git rev-parse origin/main 2>/dev/null || git rev-parse origin/master)
+    local remote_hash=$(git rev-parse "origin/$default_branch")
     
     if [ "$local_hash" = "$remote_hash" ]; then
         success "Already up to date!"
@@ -167,12 +178,14 @@ fetch_updates() {
     # Show what's being updated
     echo ""
     info "Updates available:"
-    git log --oneline HEAD..origin/main 2>/dev/null || git log --oneline HEAD..origin/master
+    git log --oneline "HEAD..origin/$default_branch"
     echo ""
     
     # Pull changes
     info "Pulling updates..."
-    git pull --rebase origin main 2>/dev/null || git pull --rebase origin master
+    if ! git pull origin "$default_branch"; then
+        error "Git pull failed. Please resolve conflicts manually."
+    fi
     
     # Restore stashed changes if any
     if [ "$has_changes" = true ]; then
