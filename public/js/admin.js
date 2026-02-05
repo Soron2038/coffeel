@@ -79,6 +79,9 @@ const elements = {
   adjustCoffeeModal: document.getElementById('adjustCoffeeModal'),
   closeAdjustModal: document.getElementById('closeAdjustModal'),
   adjustUserInfo: document.getElementById('adjustUserInfo'),
+  adjustFirstName: document.getElementById('adjustFirstName'),
+  adjustLastName: document.getElementById('adjustLastName'),
+  adjustEmail: document.getElementById('adjustEmail'),
   newCoffeeCount: document.getElementById('newCoffeeCount'),
   cancelAdjust: document.getElementById('cancelAdjust'),
   submitAdjust: document.getElementById('submitAdjust'),
@@ -157,6 +160,13 @@ const api = {
 
   deleteUserPermanent(userId) {
     return this.request(`/users/${userId}/permanent`, { method: 'DELETE' });
+  },
+
+  updateUser(userId, updates) {
+    return this.request(`/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 
   setCurrentTab(userId, amount) {
@@ -518,20 +528,45 @@ function openAdjustModal(userId) {
   if (!user) return;
   currentModalUserId = userId;
   const currentTab = user.currentTab || 0;
-  elements.adjustUserInfo.textContent = `${user.firstName} ${user.lastName} - Current Tab: €${currentTab.toFixed(2)}`;
+  
+  // Pre-fill all user fields
+  elements.adjustUserInfo.textContent = `Editing: ${user.firstName} ${user.lastName} (${user.email})`;
+  elements.adjustFirstName.value = user.firstName;
+  elements.adjustLastName.value = user.lastName;
+  elements.adjustEmail.value = user.email;
   elements.newCoffeeCount.value = currentTab.toFixed(2);
-  openModal(elements.adjustCoffeeModal, elements.newCoffeeCount);
+  
+  openModal(elements.adjustCoffeeModal, elements.adjustFirstName);
 }
 
 function closeAdjustModal() { closeModal(elements.adjustCoffeeModal); }
 
-async function submitCoffeeAdjustment() {
+async function submitUserUpdate() {
   if (!currentModalUserId) return;
-  const amount = parseFloat(elements.newCoffeeCount.value);
-  if (isNaN(amount) || amount < 0) return showToast('Please enter a valid amount', 'error');
+  
+  // Collect all form values
+  const firstName = elements.adjustFirstName.value.trim();
+  const lastName = elements.adjustLastName.value.trim();
+  const email = elements.adjustEmail.value.trim();
+  const currentTab = parseFloat(elements.newCoffeeCount.value);
+  
+  // Validate inputs
+  if (!firstName || firstName.length < 2) {
+    return showToast('First name must be at least 2 characters', 'error');
+  }
+  if (!lastName || lastName.length < 2) {
+    return showToast('Last name must be at least 2 characters', 'error');
+  }
+  if (!email || !email.includes('@')) {
+    return showToast('Please enter a valid email address', 'error');
+  }
+  if (isNaN(currentTab) || currentTab < 0) {
+    return showToast('Please enter a valid tab amount', 'error');
+  }
+  
   try {
-    await api.setCurrentTab(currentModalUserId, amount);
-    showToast('Tab updated', 'success');
+    await api.updateUser(currentModalUserId, { firstName, lastName, email, currentTab });
+    showToast('User updated', 'success');
     closeAdjustModal();
     loadUsers();
   } catch (error) { showToast(error.message, 'error'); }
@@ -942,7 +977,7 @@ function init() {
   // Adjust modal
   elements.closeAdjustModal.addEventListener('click', closeAdjustModal);
   elements.cancelAdjust.addEventListener('click', closeAdjustModal);
-  elements.submitAdjust.addEventListener('click', submitCoffeeAdjustment);
+  elements.submitAdjust.addEventListener('click', submitUserUpdate);
   elements.adjustCoffeeModal.addEventListener('click', (e) => {
     if (e.target === elements.adjustCoffeeModal) closeAdjustModal();
   });

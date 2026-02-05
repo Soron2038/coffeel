@@ -369,19 +369,31 @@
     <div class="modal-overlay" id="adjustCoffeeModal">
       <div class="modal">
         <div class="modal-header">
-          <h2>Adjust Tab</h2>
+          <h2>Edit User</h2>
           <button class="modal-close" id="closeAdjustModal">&times;</button>
         </div>
         <div class="modal-body">
           <p id="adjustUserInfo"></p>
           <div class="form-group">
-            <label for="newCoffeeCount">New Tab Amount (€)</label>
+            <label for="adjustFirstName">First Name</label>
+            <input type="text" id="adjustFirstName" minlength="2" required>
+          </div>
+          <div class="form-group">
+            <label for="adjustLastName">Last Name</label>
+            <input type="text" id="adjustLastName" minlength="2" required>
+          </div>
+          <div class="form-group">
+            <label for="adjustEmail">Email</label>
+            <input type="email" id="adjustEmail" required>
+          </div>
+          <div class="form-group">
+            <label for="newCoffeeCount">Current Tab (€)</label>
             <input type="number" id="newCoffeeCount" min="0" step="0.01" required>
           </div>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="cancelAdjust">Cancel</button>
-          <button class="btn btn-primary" id="submitAdjust">Update</button>
+          <button class="btn btn-primary" id="submitAdjust">Save Changes</button>
         </div>
       </div>
     </div>

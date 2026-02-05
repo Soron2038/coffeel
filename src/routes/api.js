@@ -117,6 +117,16 @@ router.post('/users/:id/decrement', validateIdParam, asyncHandler(async (req, re
   });
 }));
 
+// PUT /api/users/:id - Update user profile (admin)
+router.put('/users/:id', requireAdmin, validateIdParam, asyncHandler(async (req, res) => {
+  const { firstName, lastName, email, currentTab } = req.body;
+  const result = userService.updateUser(req.userId, { firstName, lastName, email, currentTab });
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+  res.json(result.user);
+}));
+
 // PUT /api/users/:id/current-tab - Set tab amount directly (admin)
 router.put('/users/:id/current-tab', requireAdmin, validateIdParam, asyncHandler(async (req, res) => {
   const { amount } = req.body;

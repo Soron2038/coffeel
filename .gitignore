@@ -79,3 +79,4 @@ certs/
 
 # OMC Files
 .omc/*
+.claude/*

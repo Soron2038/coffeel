@@ -380,6 +380,85 @@ const setCurrentTab = (id, amount) => {
 };
 
 /**
+ * Update user profile (admin only)
+ * @param {number} id - User ID
+ * @param {Object} updates - Fields to update: { firstName, lastName, email, currentTab }
+ * @returns {Object} Result with user or error
+ */
+const updateUser = (id, updates) => {
+  const user = getUserById(id);
+  if (!user) {
+    return { success: false, error: 'User not found' };
+  }
+
+  // Sanitize inputs
+  const cleanFirstName = updates.firstName ? sanitizeInput(updates.firstName) : user.firstName;
+  const cleanLastName = updates.lastName ? sanitizeInput(updates.lastName) : user.lastName;
+  const cleanEmail = updates.email ? sanitizeInput(updates.email).toLowerCase() : user.email;
+  const newTab = updates.currentTab !== undefined ? parseFloat(updates.currentTab) : user.currentTab;
+
+  // Validate names and email
+  const validation = validateUserInput(cleanFirstName, cleanLastName, cleanEmail);
+  if (!validation.isValid) {
+    return { success: false, error: validation.errors.join(', ') };
+  }
+
+  // Validate tab amount
+  if (isNaN(newTab) || newTab < 0) {
+    return { success: false, error: 'Invalid tab amount' };
+  }
+
+  // Check email uniqueness (if email changed)
+  if (cleanEmail.toLowerCase() !== user.email.toLowerCase()) {
+    const existingUser = getUserByEmail(cleanEmail);
+    if (existingUser && existingUser.id !== id) {
+      return { success: false, error: 'Email already exists' };
+    }
+  }
+
+  try {
+    // Update in transaction
+    db.transaction(() => {
+      db.run(
+        `UPDATE users SET 
+          first_name = ?,
+          last_name = ?,
+          email = ?,
+          current_tab = ?
+        WHERE id = ?`,
+        [cleanFirstName, cleanLastName, cleanEmail, newTab, id]
+      );
+
+      // Log changes in audit trail
+      if (user.firstName !== cleanFirstName || user.lastName !== cleanLastName) {
+        logAudit(id, 'name_change', `${user.firstName} ${user.lastName}`, `${cleanFirstName} ${cleanLastName}`, null, 'admin');
+      }
+      if (user.email.toLowerCase() !== cleanEmail.toLowerCase()) {
+        logAudit(id, 'email_change', user.email, cleanEmail, null, 'admin');
+      }
+      if (user.currentTab !== newTab) {
+        const diff = newTab - user.currentTab;
+        logAudit(id, diff > 0 ? 'increment' : 'decrement', null, null, diff, 'admin');
+      }
+    });
+
+    logger.info('User updated by admin', { 
+      userId: id, 
+      changes: {
+        name: user.firstName !== cleanFirstName || user.lastName !== cleanLastName,
+        email: user.email !== cleanEmail,
+        tab: user.currentTab !== newTab
+      }
+    });
+
+    return { success: true, user: getUserById(id) };
+  } catch (err) {
+    logger.error('Failed to update user', { error: err.message, userId: id });
+    return { success: false, error: 'Failed to update user' };
+  }
+};
+
+/**
  * Adjust user's account balance (admin only)
  * @param {number} id - User ID
  * @param {number} amount - Amount to adjust (positive or negative)
@@ -522,6 +601,7 @@ module.exports = {
   getUserById,
   getUserByEmail,
   createUser,
+  updateUser,
   softDeleteUser,
   restoreUser,
   hardDeleteUser,
