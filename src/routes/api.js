@@ -543,20 +543,30 @@ router.get('/admin/backups/:filename/download', requireAdmin, asyncHandler(async
   
   const stats = fs.statSync(backupPath);
   
+  // Set headers for reliable cross-browser downloads
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', stats.size);
+  res.setHeader('Accept-Ranges', 'none'); // Disable range requests for Chromium compatibility
+  res.setHeader('Cache-Control', 'no-cache');
   
-  // Use callback to ensure response completes properly
+  // Use stream for better control over download completion
   return new Promise((resolve, reject) => {
-    res.sendFile(backupPath, (err) => {
-      if (err) {
-        logger.error('Error sending backup file', { filename, error: err.message });
-        reject(err);
-      } else {
-        resolve();
+    const stream = fs.createReadStream(backupPath);
+    
+    stream.on('error', (err) => {
+      logger.error('Error reading backup file', { filename, error: err.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error reading backup file' });
       }
+      reject(err);
     });
+    
+    stream.on('end', () => {
+      resolve();
+    });
+    
+    stream.pipe(res);
   });
 }));
 
