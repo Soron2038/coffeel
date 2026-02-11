@@ -17,7 +17,7 @@ let pollInterval = null;
 let idleTimeout = null;
 let isIdle = false;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
-const IDLE_TIMEOUT_MS = 60000; // Idle after 60 seconds
+const IDLE_TIMEOUT_MS = 30000; // Idle after 30 seconds
 
 // ============================================
 // DOM Elements
