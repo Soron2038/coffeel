@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     'restore', 
     'hard_delete',
     'user_created',
-    'balance_adjustment'
+    'balance_adjustment',
+    'name_change',
+    'email_change'
   )),
   old_value INTEGER,
   new_value INTEGER,

@@ -28,6 +28,7 @@ const elements = {
   loading: document.getElementById('loading'),
   emptyState: document.getElementById('emptyState'),
   searchInput: document.getElementById('searchInput'),
+  searchClearBtn: document.getElementById('searchClearBtn'),
   addUserBtn: document.getElementById('addUserBtn'),
   addUserModal: document.getElementById('addUserModal'),
   addUserForm: document.getElementById('addUserForm'),
@@ -328,6 +329,7 @@ async function handleDeleteClick(e) {
 
 function handleSearch(e) {
   const query = e.target.value.trim().toLowerCase();
+  updateClearButton(e.target.value);
 
   // Debounce search (150ms)
   clearTimeout(debounceTimer);
@@ -335,6 +337,20 @@ function handleSearch(e) {
     searchQuery = query;
     filterUsers();
   }, 150);
+}
+
+function updateClearButton(value) {
+  const hasText = value.length > 0;
+  elements.searchClearBtn.classList.toggle('visible', hasText);
+  elements.searchInput.classList.toggle('has-clear', hasText);
+}
+
+function handleSearchClear() {
+  elements.searchInput.value = '';
+  elements.searchInput.focus();
+  updateClearButton('');
+  searchQuery = '';
+  filterUsers();
 }
 
 function filterUsers() {
@@ -514,6 +530,7 @@ function isValidEmail(email) {
 async function init() {
   // Event listeners
   elements.searchInput.addEventListener('input', handleSearch);
+  elements.searchClearBtn.addEventListener('click', handleSearchClear);
   elements.addUserBtn.addEventListener('click', openAddUserModal);
   elements.closeAddUserModal.addEventListener('click', closeAddUserModal);
   elements.cancelAddUser.addEventListener('click', closeAddUserModal);
