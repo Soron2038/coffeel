@@ -10,7 +10,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/coffeel.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/coffee.db');
 const db = new Database(DB_PATH, { readonly: true });
 
 // Settings aus DB laden
