@@ -1,6 +1,6 @@
 # CofFeEL — Projektstatus
 
-Letzte Aktualisierung: 2026-02-23
+Letzte Aktualisierung: 2026-02-23 (Commit 08ba5bb)
 
 ## Übersicht
 
@@ -54,7 +54,7 @@ Die Kernfunktionalität ist vollständig implementiert und getestet. Das System 
 - SMTP-Config aus DB-Settings (mit .env-Fallback), Transporter wird bei Konfigurationsänderung neu erstellt
 
 **Frontend**
-- Kiosk-Ansicht (`/`) — Touch-optimiert, Echtzeit-Suche (150ms Debounce), +/−/Pay/Delete-Buttons
+- Kiosk-Ansicht (`/`) — Touch-optimiert, Echtzeit-Suche (150ms Debounce) mit Clear-Button, +/−/Pay/Delete-Buttons
 - Admin-Panel (`/admin.html`) — Login-geschützt, Tabs: Active Users, Deleted Users, Payment History, Settings
 - Login-Seite (`/login.html`)
 - Responsives CSS mit CSS-Variablen (`variables.css`)
@@ -68,13 +68,7 @@ Die Kernfunktionalität ist vollständig implementiert und getestet. Das System 
 
 ## Bekannte Bugs 🐛
 
-### Kritisch
-
-**Audit-Log-Constraint-Verletzung** (`src/services/userService.js:434,437`)
-- `updateUser()` schreibt `'name_change'` und `'email_change'` in `audit_log.action`
-- Das DB-Schema (`src/db/schema.sql:55-65`) hat eine CHECK-Constraint, die nur bestimmte Werte erlaubt — `name_change` und `email_change` sind NICHT enthalten
-- **Wirkung:** Admin-Edit von Name/E-Mail eines Nutzers wirft einen SQLite-Constraint-Error
-- **Fix:** Entweder CHECK-Constraint in Schema erweitern ODER `updateUser()` auf erlaubte Audit-Actions umstellen
+Keine bekannten Bugs.
 
 ---
 
@@ -108,7 +102,6 @@ Die Kernfunktionalität ist vollständig implementiert und getestet. Das System 
 
 ## Nächste Schritte
 
-1. **Bug fixen:** Audit-Log-Constraint-Verletzung in `userService.js` beheben
-2. **Deployment:** Auf Ziel-VM deployen, Nginx + PM2 konfigurieren, SSL einrichten
-3. **Testen:** E2E-Tests für Payment-Flow + Soft-Delete + Restore-Flow ergänzen
-4. **Refactoring (optional):** E-Mail-Templates zusammenführen, Frontend-Utilities extrahieren
+1. **Deployment:** Auf Ziel-VM deployen, Nginx + PM2 konfigurieren, SSL einrichten (`npm run db:migrate` nach Update ausführen)
+2. **Testen:** E2E-Tests für Payment-Flow + Soft-Delete + Restore-Flow ergänzen
+3. **Refactoring (optional):** E-Mail-Templates zusammenführen, Frontend-Utilities extrahieren
