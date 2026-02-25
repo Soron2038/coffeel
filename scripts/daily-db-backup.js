@@ -36,7 +36,7 @@ const today = new Date().toLocaleDateString('de-DE', {
   weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
 });
 const backupDate = new Date().toISOString().slice(0, 10);
-const backupPath = `/tmp/coffeel-backup-${backupDate}.db`;
+const backupPath = `/opt/coffeel/data/backups/coffeel-backup-${backupDate}.db`;
 
 const generateBackupEmail = () => {
   const text = `
