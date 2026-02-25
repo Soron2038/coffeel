@@ -151,8 +151,18 @@ db.backup(backupPath).then(async () => {
     }]
   });
 
-  fs.unlinkSync(backupPath);
-  console.log(`✅ Backup erfolgreich versendet (${today})`);
+  // Backups älter als 30 Tage löschen
+  const backupDir = path.dirname(backupPath);
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  for (const file of fs.readdirSync(backupDir)) {
+    if (!file.startsWith('coffeel-backup-') || !file.endsWith('.db')) continue;
+    const filePath = path.join(backupDir, file);
+    if (fs.statSync(filePath).mtimeMs < cutoff) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  console.log(`✅ Backup erfolgreich versendet und gespeichert (${today})`);
   process.exit(0);
 }).catch(err => {
   console.error('❌ Backup fehlgeschlagen:', err.message);
