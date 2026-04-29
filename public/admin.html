@@ -28,6 +28,7 @@
       <button class="nav-tab" data-tab="deleted-users">Deleted Users</button>
       <button class="nav-tab" data-tab="payments">Payment History</button>
       <button class="nav-tab" data-tab="settings">Settings</button>
+      <button class="nav-tab" data-tab="broadcasts">Broadcasts</button>
       <button class="nav-tab" data-tab="admin-users">Admin Users</button>
       <button class="nav-tab" data-tab="backups">Backups</button>
     </nav>
@@ -302,6 +303,70 @@
         </form>
       </section>
 
+      <!-- Broadcasts Tab -->
+      <section class="tab-content" id="broadcasts">
+        <div class="section-header">
+          <h2>Broadcast Email</h2>
+          <p class="section-description">Send an announcement to all active users (e.g., price changes, machine relocation).</p>
+        </div>
+
+        <!-- Active broadcast progress banner (only visible while sending) -->
+        <div class="broadcast-progress" id="broadcastProgress" style="display: none;">
+          <h3 id="broadcastProgressTitle">Sending broadcast…</h3>
+          <p id="broadcastProgressStatus">0 / 0 sent, 0 failed</p>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="broadcastProgressFill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Compose form -->
+        <div class="broadcast-compose" id="broadcastCompose">
+          <div class="form-group">
+            <label for="broadcastSubject">Subject</label>
+            <input type="text" id="broadcastSubject" maxlength="200" placeholder="e.g., Coffee price update">
+          </div>
+          <div class="form-group">
+            <label for="broadcastBody">Message</label>
+            <textarea id="broadcastBody" rows="12" maxlength="10000" placeholder="Hi {firstName},&#10;&#10;Starting May 1st, the price per coffee will be …"></textarea>
+            <p class="form-hint">You can use <code>{firstName}</code>, <code>{lastName}</code>, <code>{email}</code> as placeholders. URLs are auto-linked.</p>
+          </div>
+
+          <div class="recipient-info" id="broadcastRecipientInfo">
+            Recipients: <strong id="broadcastRecipientCount">–</strong> active users
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="broadcastPreviewBtn">Preview</button>
+            <button type="button" class="btn btn-secondary" id="broadcastTestSendBtn">Test send to me</button>
+            <button type="button" class="btn btn-primary" id="broadcastSendBtn">Send to all</button>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div class="section-header" style="margin-top: 32px;">
+          <h3>History</h3>
+        </div>
+        <div class="user-table-container">
+          <table class="data-table" id="broadcastsTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Subject</th>
+                <th>Sent / Total</th>
+                <th>Failed</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="broadcastsBody">
+              <!-- rendered by admin.js -->
+            </tbody>
+          </table>
+          <div class="empty-message" id="noBroadcasts" style="display: none;">
+            No broadcasts sent yet.
+          </div>
+        </div>
+      </section>
+
       <!-- Backups Tab -->
       <section class="tab-content" id="backups">
         <div class="section-header">
@@ -431,6 +496,54 @@
         <div class="modal-actions">
           <button class="btn btn-secondary" id="cancelPassword">Cancel</button>
           <button class="btn btn-primary" id="submitPassword">Change Password</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Broadcast Preview Modal -->
+    <div class="modal-overlay" id="broadcastPreviewModal">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2>Preview</h2>
+          <button class="modal-close" id="closeBroadcastPreview">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-meta">Rendered with sample user: <span id="broadcastPreviewSampleName">–</span></p>
+          <div class="preview-tabs">
+            <button class="preview-tab active" data-preview-tab="html">HTML</button>
+            <button class="preview-tab" data-preview-tab="text">Plain text</button>
+          </div>
+          <div class="preview-meta">
+            Subject: <strong id="broadcastPreviewSubject"></strong>
+          </div>
+          <iframe id="broadcastPreviewFrame" class="preview-frame" sandbox=""></iframe>
+          <pre id="broadcastPreviewText" class="preview-text" style="display: none;"></pre>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="closeBroadcastPreviewBtn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Broadcast Detail Modal -->
+    <div class="modal-overlay" id="broadcastDetailModal">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2 id="broadcastDetailSubject">Broadcast detail</h2>
+          <button class="modal-close" id="closeBroadcastDetail">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-meta" id="broadcastDetailMeta"></p>
+          <h4>Body</h4>
+          <pre id="broadcastDetailBody" class="preview-text"></pre>
+          <div id="broadcastDetailFailedBlock" style="display: none;">
+            <h4>Failed recipients</h4>
+            <ul id="broadcastDetailFailedList" class="failed-list"></ul>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="closeBroadcastDetailBtn">Close</button>
+          <button class="btn btn-primary" id="broadcastResendFailedBtn" style="display: none;">Resend to failed</button>
         </div>
       </div>
     </div>

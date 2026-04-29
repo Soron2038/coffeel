@@ -106,9 +106,22 @@ app.use((err, req, res, next) => {
 try {
   db.initialize();
   logger.info('Database initialized successfully');
-  
+
+  // Apply pending schema migrations. Idempotent: skipped if already at HEAD.
+  // Hard-fail on error rather than starting with a half-migrated schema.
+  const { runMigrations } = require('./db/migrations');
+  const migrationResult = runMigrations(db.getDb(), { logger });
+  if (migrationResult.applied.length > 0) {
+    logger.info('Migrations applied', { applied: migrationResult.applied });
+  }
+
   // Ensure default admin user exists
   adminUserService.ensureDefaultAdmin();
+
+  // Recover any broadcasts that were in flight when the server last shut down.
+  // Done after schema init, before accepting requests.
+  const broadcastService = require('./services/broadcastService');
+  broadcastService.recoverInterruptedBroadcasts();
 } catch (err) {
   logger.error('Failed to initialize database', { error: err.message });
   process.exit(1);

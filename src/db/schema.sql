@@ -53,17 +53,18 @@ CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
   action TEXT NOT NULL CHECK(action IN (
-    'increment', 
-    'decrement', 
-    'payment_request', 
-    'payment_received', 
-    'soft_delete', 
-    'restore', 
+    'increment',
+    'decrement',
+    'payment_request',
+    'payment_received',
+    'soft_delete',
+    'restore',
     'hard_delete',
     'user_created',
     'balance_adjustment',
     'name_change',
-    'email_change'
+    'email_change',
+    'broadcast_email'
   )),
   old_value INTEGER,
   new_value INTEGER,
@@ -104,3 +105,24 @@ CREATE TABLE IF NOT EXISTS admin_users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_users_username ON admin_users(username);
+
+-- Broadcasts table: tracks bulk announcement emails sent by admins
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('sending', 'completed', 'interrupted', 'failed')),
+  total_count INTEGER NOT NULL,
+  sent_count INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  failed_recipients TEXT,                                  -- JSON: [{userId, email, error}]
+  origin_broadcast_id INTEGER REFERENCES broadcasts(id),   -- NULL on original; set on resend
+  sent_by_admin_id INTEGER NOT NULL REFERENCES admin_users(id),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  started_at DATETIME,
+  finished_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcasts_status ON broadcasts(status);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_created ON broadcasts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_origin ON broadcasts(origin_broadcast_id);

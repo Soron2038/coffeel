@@ -248,6 +248,94 @@ router.post('/settings/test-smtp', requireAdmin, asyncHandler(async (req, res) =
 }));
 
 // ============================================
+// BROADCAST ENDPOINTS (Admin only)
+// ============================================
+
+const broadcastService = require('../services/broadcastService');
+
+// POST /api/broadcasts/preview - Render subject+body with sample user
+router.post('/broadcasts/preview', requireAdmin, asyncHandler(async (req, res) => {
+  const { subject, body } = req.body;
+  const result = broadcastService.previewBroadcast(subject, body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+  res.json(result.data);
+}));
+
+// POST /api/broadcasts/test-send - Send rendered preview to admin email
+router.post('/broadcasts/test-send', requireAdmin, asyncHandler(async (req, res) => {
+  const { subject, body } = req.body;
+  const adminEmail = settingsService.getSetting('admin_email');
+  const result = await broadcastService.testSendBroadcast(subject, body, adminEmail);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+  res.json({ success: true, ...result.data });
+}));
+
+// POST /api/broadcasts - Start a new broadcast
+router.post('/broadcasts', requireAdmin, asyncHandler(async (req, res) => {
+  const { subject, body } = req.body;
+  const adminUser = req.session.adminUser;
+  const result = broadcastService.startBroadcast(subject, body, adminUser);
+  if (!result.success) {
+    if (result.error === 'BROADCAST_IN_PROGRESS') {
+      return res.status(409).json({ error: 'BROADCAST_IN_PROGRESS' });
+    }
+    return res.status(400).json({ error: result.error });
+  }
+  res.status(202).json(result.data);
+}));
+
+// GET /api/broadcasts - List broadcast history
+router.get('/broadcasts', requireAdmin, asyncHandler(async (req, res) => {
+  const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit, 10) || 20) : 20;
+  const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset, 10) || 0) : 0;
+  const items = broadcastService.listBroadcasts({ limit, offset });
+  res.json(items);
+}));
+
+// GET /api/broadcasts/active - Returns the currently-sending broadcast (or null)
+router.get('/broadcasts/active', requireAdmin, asyncHandler(async (req, res) => {
+  const row = broadcastService.getActiveBroadcast();
+  if (!row) {
+    return res.json(null);
+  }
+  res.json(broadcastService.getBroadcast(row.id));
+}));
+
+// GET /api/broadcasts/:id - Get a specific broadcast (for status polling)
+router.get('/broadcasts/:id', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid broadcast ID' });
+  }
+  const broadcast = broadcastService.getBroadcast(id);
+  if (!broadcast) {
+    return res.status(404).json({ error: 'Broadcast not found' });
+  }
+  res.json(broadcast);
+}));
+
+// POST /api/broadcasts/:id/resend-failed - Resend to recipients that failed
+router.post('/broadcasts/:id/resend-failed', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid broadcast ID' });
+  }
+  const adminUser = req.session.adminUser;
+  const result = broadcastService.resendFailed(id, adminUser);
+  if (!result.success) {
+    if (result.error === 'BROADCAST_IN_PROGRESS') {
+      return res.status(409).json({ error: 'BROADCAST_IN_PROGRESS' });
+    }
+    return res.status(400).json({ error: result.error });
+  }
+  res.status(202).json(result.data);
+}));
+
+// ============================================
 // EXPORT ENDPOINTS (Admin only)
 // ============================================
 
@@ -467,17 +555,30 @@ router.post('/admin/restore', requireAdmin, asyncHandler(async (req, res) => {
   
   // Close current connection
   db.close();
-  
+
   // Copy backup over main database
   fs.copyFileSync(backupPath, db.DB_PATH);
-  
-  // Reopen connection (will happen automatically on next getDb() call)
+
+  // Re-open and bring the restored DB up to current schema. Old backups may be
+  // missing tables/constraints added since they were taken; the migration is
+  // idempotent and additive, so no data is lost.
+  const { runMigrations } = require('../db/migrations');
+  const restoredDb = db.getDb();
+  const migrationResult = runMigrations(restoredDb, { logger });
+  if (migrationResult.applied.length > 0) {
+    logger.info('Migrations applied after restore', {
+      filename,
+      applied: migrationResult.applied,
+    });
+  }
+
   logger.info('Database restored from backup', { filename });
-  
+
   res.json({
     success: true,
     message: `Restored from ${filename}`,
     safetyBackup: safetyBackupFilename,
+    migrationsApplied: migrationResult.applied,
   });
 }));
 

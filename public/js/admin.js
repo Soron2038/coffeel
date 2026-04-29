@@ -121,6 +121,37 @@ const elements = {
   newPassword: document.getElementById('newPassword'),
   cancelPassword: document.getElementById('cancelPassword'),
   submitPassword: document.getElementById('submitPassword'),
+
+  // Broadcasts
+  broadcastSubject: document.getElementById('broadcastSubject'),
+  broadcastBody: document.getElementById('broadcastBody'),
+  broadcastRecipientCount: document.getElementById('broadcastRecipientCount'),
+  broadcastPreviewBtn: document.getElementById('broadcastPreviewBtn'),
+  broadcastTestSendBtn: document.getElementById('broadcastTestSendBtn'),
+  broadcastSendBtn: document.getElementById('broadcastSendBtn'),
+  broadcastsBody: document.getElementById('broadcastsBody'),
+  noBroadcasts: document.getElementById('noBroadcasts'),
+  broadcastCompose: document.getElementById('broadcastCompose'),
+  broadcastProgress: document.getElementById('broadcastProgress'),
+  broadcastProgressTitle: document.getElementById('broadcastProgressTitle'),
+  broadcastProgressStatus: document.getElementById('broadcastProgressStatus'),
+  broadcastProgressFill: document.getElementById('broadcastProgressFill'),
+  broadcastPreviewModal: document.getElementById('broadcastPreviewModal'),
+  closeBroadcastPreview: document.getElementById('closeBroadcastPreview'),
+  closeBroadcastPreviewBtn: document.getElementById('closeBroadcastPreviewBtn'),
+  broadcastPreviewSampleName: document.getElementById('broadcastPreviewSampleName'),
+  broadcastPreviewSubject: document.getElementById('broadcastPreviewSubject'),
+  broadcastPreviewFrame: document.getElementById('broadcastPreviewFrame'),
+  broadcastPreviewText: document.getElementById('broadcastPreviewText'),
+  broadcastDetailModal: document.getElementById('broadcastDetailModal'),
+  closeBroadcastDetail: document.getElementById('closeBroadcastDetail'),
+  closeBroadcastDetailBtn: document.getElementById('closeBroadcastDetailBtn'),
+  broadcastDetailSubject: document.getElementById('broadcastDetailSubject'),
+  broadcastDetailMeta: document.getElementById('broadcastDetailMeta'),
+  broadcastDetailBody: document.getElementById('broadcastDetailBody'),
+  broadcastDetailFailedBlock: document.getElementById('broadcastDetailFailedBlock'),
+  broadcastDetailFailedList: document.getElementById('broadcastDetailFailedList'),
+  broadcastResendFailedBtn: document.getElementById('broadcastResendFailedBtn'),
 };
 
 // ============================================
@@ -244,6 +275,44 @@ const api = {
     return this.request(`/admin/users/${userId}`, { method: 'DELETE' });
   },
 
+  // Broadcasts
+  previewBroadcast(subject, body) {
+    return this.request('/broadcasts/preview', {
+      method: 'POST',
+      body: JSON.stringify({ subject, body }),
+    });
+  },
+
+  testSendBroadcast(subject, body) {
+    return this.request('/broadcasts/test-send', {
+      method: 'POST',
+      body: JSON.stringify({ subject, body }),
+    });
+  },
+
+  startBroadcast(subject, body) {
+    return this.request('/broadcasts', {
+      method: 'POST',
+      body: JSON.stringify({ subject, body }),
+    });
+  },
+
+  getBroadcasts(limit = 20) {
+    return this.request(`/broadcasts?limit=${limit}`);
+  },
+
+  getActiveBroadcast() {
+    return this.request('/broadcasts/active');
+  },
+
+  getBroadcast(id) {
+    return this.request(`/broadcasts/${id}`);
+  },
+
+  resendFailedBroadcast(id) {
+    return this.request(`/broadcasts/${id}/resend-failed`, { method: 'POST' });
+  },
+
   // Backups
   getBackups() {
     return this.request('/admin/backups');
@@ -287,6 +356,8 @@ function switchTab(tabId) {
     loadAdminUsers();
   } else if (tabId === 'backups') {
     loadBackups();
+  } else if (tabId === 'broadcasts') {
+    loadBroadcastsTab();
   }
 }
 
@@ -876,6 +947,289 @@ async function uploadBackup(file) {
 }
 
 // ============================================
+// Broadcasts
+// ============================================
+
+let broadcastPollInterval = null;
+let broadcasts = [];
+let currentDetailBroadcast = null;
+const BROADCAST_POLL_MS = 1500;
+
+async function loadBroadcastsTab() {
+  // Recipient count
+  try {
+    const users = await api.getUsers(false);
+    elements.broadcastRecipientCount.textContent = users.length;
+  } catch (error) {
+    elements.broadcastRecipientCount.textContent = '?';
+    showToast('Failed to load recipients: ' + error.message, 'error');
+  }
+
+  // History
+  await loadBroadcastsHistory();
+
+  // Active broadcast detection — if one is in flight, switch to progress mode
+  try {
+    const active = await api.getActiveBroadcast();
+    if (active && active.id) {
+      enterProgressMode(active);
+    } else {
+      exitProgressMode();
+    }
+  } catch (error) {
+    console.warn('Failed to check active broadcast:', error.message);
+  }
+}
+
+async function loadBroadcastsHistory() {
+  try {
+    broadcasts = await api.getBroadcasts(20);
+    renderBroadcasts();
+  } catch (error) {
+    showToast('Failed to load broadcasts: ' + error.message, 'error');
+  }
+}
+
+function renderBroadcasts() {
+  if (!broadcasts || broadcasts.length === 0) {
+    elements.broadcastsBody.innerHTML = '';
+    elements.noBroadcasts.style.display = 'block';
+    return;
+  }
+  elements.noBroadcasts.style.display = 'none';
+  elements.broadcastsBody.innerHTML = broadcasts.map((b) => {
+    const subjectShort = b.subject.length > 60 ? b.subject.slice(0, 57) + '…' : b.subject;
+    const statusClass = `status-${b.status}`;
+    return `<tr class="broadcast-row" data-broadcast-id="${b.id}">
+      <td>${formatDate(b.createdAt)}</td>
+      <td><strong>${escapeHtml(subjectShort)}</strong></td>
+      <td>${b.sentCount} / ${b.totalCount}</td>
+      <td>${b.failedCount > 0 ? `<span class="failed-count">${b.failedCount}</span>` : '0'}</td>
+      <td><span class="status-badge ${statusClass}">${escapeHtml(b.status)}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Event delegation for row click → detail modal
+  elements.broadcastsBody.querySelectorAll('.broadcast-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const id = parseInt(row.dataset.broadcastId, 10);
+      openBroadcastDetail(id);
+    });
+  });
+}
+
+async function previewBroadcastClick() {
+  const subject = elements.broadcastSubject.value.trim();
+  const body = elements.broadcastBody.value.trim();
+  if (!subject || !body) {
+    return showToast('Please fill in subject and message', 'error');
+  }
+  try {
+    const result = await api.previewBroadcast(subject, body);
+    elements.broadcastPreviewSubject.textContent = result.subject;
+    elements.broadcastPreviewSampleName.textContent = result.sampleUserId
+      ? `first active user (id ${result.sampleUserId})`
+      : 'synthetic sample (no active users)';
+    // Render HTML safely via srcdoc + sandbox iframe
+    elements.broadcastPreviewFrame.removeAttribute('src');
+    elements.broadcastPreviewFrame.srcdoc = result.html;
+    elements.broadcastPreviewText.textContent = result.text;
+
+    // Default to HTML tab
+    switchPreviewTab('html');
+    openModal(elements.broadcastPreviewModal, null);
+  } catch (error) {
+    showToast('Preview failed: ' + error.message, 'error');
+  }
+}
+
+function switchPreviewTab(tab) {
+  document.querySelectorAll('.preview-tab').forEach((el) => {
+    el.classList.toggle('active', el.dataset.previewTab === tab);
+  });
+  elements.broadcastPreviewFrame.style.display = tab === 'html' ? 'block' : 'none';
+  elements.broadcastPreviewText.style.display = tab === 'text' ? 'block' : 'none';
+}
+
+async function testSendBroadcastClick() {
+  const subject = elements.broadcastSubject.value.trim();
+  const body = elements.broadcastBody.value.trim();
+  if (!subject || !body) {
+    return showToast('Please fill in subject and message', 'error');
+  }
+  try {
+    elements.broadcastTestSendBtn.disabled = true;
+    elements.broadcastTestSendBtn.textContent = 'Sending…';
+    const result = await api.testSendBroadcast(subject, body);
+    showToast(`Test mail sent to ${result.sentTo}`, 'success');
+  } catch (error) {
+    showToast('Test send failed: ' + error.message, 'error');
+  } finally {
+    elements.broadcastTestSendBtn.disabled = false;
+    elements.broadcastTestSendBtn.textContent = 'Test send to me';
+  }
+}
+
+function sendToAllClick() {
+  const subject = elements.broadcastSubject.value.trim();
+  const body = elements.broadcastBody.value.trim();
+  if (!subject || !body) {
+    return showToast('Please fill in subject and message', 'error');
+  }
+  const count = elements.broadcastRecipientCount.textContent;
+  showGenericConfirm({
+    title: 'Send broadcast?',
+    message: `Send to ${count} recipients?`,
+    onConfirm: async () => {
+      try {
+        const result = await api.startBroadcast(subject, body);
+        const broadcast = await api.getBroadcast(result.broadcastId);
+        enterProgressMode(broadcast);
+      } catch (error) {
+        if (error.message === 'BROADCAST_IN_PROGRESS') {
+          showToast('Another broadcast is already in progress.', 'warning');
+          // Switch to progress mode for the active one
+          const active = await api.getActiveBroadcast().catch(() => null);
+          if (active) enterProgressMode(active);
+        } else {
+          showToast('Send failed: ' + error.message, 'error');
+        }
+      }
+    },
+  });
+}
+
+function enterProgressMode(broadcast) {
+  elements.broadcastCompose.style.display = 'none';
+  elements.broadcastProgress.style.display = 'block';
+  updateProgressDisplay(broadcast);
+  startBroadcastPolling(broadcast.id);
+}
+
+function exitProgressMode() {
+  elements.broadcastProgress.style.display = 'none';
+  elements.broadcastCompose.style.display = 'block';
+  stopBroadcastPolling();
+}
+
+function updateProgressDisplay(b) {
+  const total = b.totalCount || 0;
+  const sent = b.sentCount || 0;
+  const failed = b.failedCount || 0;
+  const done = sent + failed;
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  elements.broadcastProgressTitle.textContent = b.status === 'sending' ? 'Sending broadcast…' : `Broadcast ${b.status}`;
+  elements.broadcastProgressStatus.textContent = `${sent} / ${total} sent, ${failed} failed`;
+  elements.broadcastProgressFill.style.width = `${pct}%`;
+}
+
+function startBroadcastPolling(broadcastId) {
+  stopBroadcastPolling();
+  broadcastPollInterval = setInterval(async () => {
+    try {
+      const b = await api.getBroadcast(broadcastId);
+      updateProgressDisplay(b);
+      if (b.status !== 'sending') {
+        stopBroadcastPolling();
+        // Final state: completed | failed | interrupted
+        if (b.status === 'completed') {
+          const msg = b.failedCount === 0
+            ? `Broadcast sent to ${b.sentCount} recipient(s).`
+            : `Broadcast finished: ${b.sentCount} sent, ${b.failedCount} failed.`;
+          showToast(msg, b.failedCount === 0 ? 'success' : 'warning');
+        } else if (b.status === 'failed') {
+          showToast('Broadcast failed — see history for details.', 'error');
+        } else if (b.status === 'interrupted') {
+          showToast('Broadcast was interrupted (server restart).', 'warning');
+        }
+        // Reset compose form
+        elements.broadcastSubject.value = '';
+        elements.broadcastBody.value = '';
+        exitProgressMode();
+        loadBroadcastsHistory();
+      }
+    } catch (error) {
+      console.warn('Broadcast poll failed:', error.message);
+    }
+  }, BROADCAST_POLL_MS);
+}
+
+function stopBroadcastPolling() {
+  if (broadcastPollInterval) {
+    clearInterval(broadcastPollInterval);
+    broadcastPollInterval = null;
+  }
+}
+
+async function openBroadcastDetail(id) {
+  try {
+    const b = await api.getBroadcast(id);
+    currentDetailBroadcast = b;
+    elements.broadcastDetailSubject.textContent = b.subject;
+    elements.broadcastDetailMeta.textContent =
+      `${formatDate(b.createdAt)} · status: ${b.status} · ${b.sentCount}/${b.totalCount} sent · ${b.failedCount} failed`
+      + (b.originBroadcastId ? ` · resent from #${b.originBroadcastId}` : '');
+    elements.broadcastDetailBody.textContent = b.body;
+
+    if (b.failedCount > 0 && b.failedRecipients && b.failedRecipients.length > 0) {
+      elements.broadcastDetailFailedBlock.style.display = 'block';
+      elements.broadcastDetailFailedList.innerHTML = '';
+      b.failedRecipients.forEach((f) => {
+        const li = document.createElement('li');
+        const emailSpan = document.createElement('span');
+        emailSpan.className = 'failed-email';
+        emailSpan.textContent = f.email;
+        const errorSpan = document.createElement('span');
+        errorSpan.className = 'failed-error';
+        errorSpan.textContent = f.error || 'Unknown error';
+        li.appendChild(emailSpan);
+        li.appendChild(document.createTextNode(' — '));
+        li.appendChild(errorSpan);
+        elements.broadcastDetailFailedList.appendChild(li);
+      });
+      // Resend button only for completed broadcasts with failures
+      elements.broadcastResendFailedBtn.style.display = b.status === 'completed' ? 'inline-block' : 'none';
+    } else {
+      elements.broadcastDetailFailedBlock.style.display = 'none';
+      elements.broadcastResendFailedBtn.style.display = 'none';
+    }
+
+    openModal(elements.broadcastDetailModal, null);
+  } catch (error) {
+    showToast('Failed to load broadcast detail: ' + error.message, 'error');
+  }
+}
+
+function closeBroadcastDetail() {
+  closeModal(elements.broadcastDetailModal);
+  currentDetailBroadcast = null;
+}
+
+function resendFailedBroadcastClick() {
+  if (!currentDetailBroadcast) return;
+  const failedCount = currentDetailBroadcast.failedCount;
+  const id = currentDetailBroadcast.id;
+  showGenericConfirm({
+    title: 'Resend to failed?',
+    message: `Resend to ${failedCount} recipient(s) that failed in the original broadcast?`,
+    onConfirm: async () => {
+      try {
+        const result = await api.resendFailedBroadcast(id);
+        const broadcast = await api.getBroadcast(result.broadcastId);
+        closeBroadcastDetail();
+        enterProgressMode(broadcast);
+      } catch (error) {
+        if (error.message === 'BROADCAST_IN_PROGRESS') {
+          showToast('Another broadcast is already in progress.', 'warning');
+        } else {
+          showToast('Resend failed: ' + error.message, 'error');
+        }
+      }
+    },
+  });
+}
+
+// ============================================
 // Logout
 // ============================================
 
@@ -1036,6 +1390,25 @@ function init() {
   elements.backupFileInput.addEventListener('change', (e) => {
     if (e.target.files[0]) uploadBackup(e.target.files[0]);
   });
+
+  // Broadcasts
+  elements.broadcastPreviewBtn.addEventListener('click', previewBroadcastClick);
+  elements.broadcastTestSendBtn.addEventListener('click', testSendBroadcastClick);
+  elements.broadcastSendBtn.addEventListener('click', sendToAllClick);
+  elements.closeBroadcastPreview.addEventListener('click', () => closeModal(elements.broadcastPreviewModal));
+  elements.closeBroadcastPreviewBtn.addEventListener('click', () => closeModal(elements.broadcastPreviewModal));
+  elements.broadcastPreviewModal.addEventListener('click', (e) => {
+    if (e.target === elements.broadcastPreviewModal) closeModal(elements.broadcastPreviewModal);
+  });
+  document.querySelectorAll('.preview-tab').forEach((tab) => {
+    tab.addEventListener('click', () => switchPreviewTab(tab.dataset.previewTab));
+  });
+  elements.closeBroadcastDetail.addEventListener('click', closeBroadcastDetail);
+  elements.closeBroadcastDetailBtn.addEventListener('click', closeBroadcastDetail);
+  elements.broadcastDetailModal.addEventListener('click', (e) => {
+    if (e.target === elements.broadcastDetailModal) closeBroadcastDetail();
+  });
+  elements.broadcastResendFailedBtn.addEventListener('click', resendFailedBroadcastClick);
 
   // Initial load
   loadCurrentUser();

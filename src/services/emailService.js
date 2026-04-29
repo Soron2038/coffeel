@@ -538,6 +538,45 @@ const resetTransporter = () => {
 };
 
 /**
+ * Generic SMTP send. Returns { success, messageId } or { success: false, error }.
+ * Used by broadcast and any other caller that needs raw email sending without
+ * domain-specific templating.
+ *
+ * @param {Object} opts
+ * @param {string} opts.to - Recipient email
+ * @param {string} opts.subject - Subject line
+ * @param {string} opts.text - Plain-text body
+ * @param {string} opts.html - HTML body
+ * @param {string} [opts.replyTo] - Optional Reply-To header
+ * @param {string} [opts.cc] - Optional CC address
+ */
+const sendMail = async ({ to, subject, text, html, replyTo, cc }) => {
+  try {
+    const transport = getTransporter();
+    const smtpConfig = getSmtpConfig();
+
+    if (!smtpConfig.host) {
+      return { success: false, error: 'SMTP host not configured' };
+    }
+
+    const mailOptions = {
+      from: smtpConfig.from,
+      to,
+      subject,
+      text,
+      html,
+    };
+    if (replyTo) mailOptions.replyTo = replyTo;
+    if (cc) mailOptions.cc = cc;
+
+    const info = await transport.sendMail(mailOptions);
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+/**
  * Send a test email to verify SMTP configuration
  * @param {string} toEmail - Email address to send test to
  * @returns {Object} Result with success status
@@ -584,4 +623,5 @@ module.exports = {
   verifyConnection,
   resetTransporter,
   sendTestEmail,
+  sendMail,
 };
