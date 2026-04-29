@@ -16,57 +16,113 @@ CofFeEL replaces a paper-based coffee tally system with a modern, touch-optimize
 - **Audit Log**: Complete history of all actions
 - **Email Notifications**: Automatic payment request emails with bank details
 
-## 🚀 Quick Start
+## 🚀 Production Deployment
+
+For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` does everything end-to-end. Run it as a sudo-capable user (not root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
+```
+
+The script walks through 13 steps:
+
+1. System packages (`build-essential`, `git`, `curl`, `sqlite3`)
+2. Node.js 20.x LTS
+3. PM2 process manager
+4. Nginx (with `client_max_body_size 50M` so DB backup uploads via the Admin Panel work)
+5. Clone the repo into `/opt/coffeel`
+6. `npm install --production`
+7. Optional interactive `.env` setup (SMTP, bank details, coffee price) — skip it and configure later in the Admin Panel → Settings
+8. Initialize the SQLite database (creates default admin user `admin` / `admin`)
+9. Configure Nginx as reverse proxy to port 3000
+10. Start the app under PM2
+11. Optional UFW firewall (ports 22, 80, 443)
+12. Optional Let's Encrypt SSL via Certbot
+13. Optional daily 3 AM backup cron (runs `scripts/daily-db-backup.js`, emails the admin a stats report with the `.db` attached, prunes anything older than 30 days)
+
+After install:
+
+- Kiosk UI: `http://<server-ip>/`
+- Admin Panel: `http://<server-ip>/admin.html`
+- Default login: `admin` / `admin` — **change immediately** in Admin Panel → Admin Users.
+
+For manual step-by-step instructions, troubleshooting, and disaster recovery, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## 💻 Local Development
 
 ### Prerequisites
 
 - Node.js 20.x LTS or higher
 - npm 10.x or higher
 
-### Installation
+### Setup
 
 ```bash
-# Clone repository
-git clone <repository-url>
+git clone https://github.com/Soron2038/coffeel.git
 cd coffeel
 
-# Install dependencies
 npm install
-
-# Copy environment file
 cp .env.example .env
+# Edit .env with your SMTP / bank settings (or configure later in the Admin Panel)
 
-# Edit .env with your configuration
-nano .env
+npm run db:init        # Initialize database schema + default admin user
+npm run db:seed        # (Optional) seed test users
 
-# Initialize database
-npm run db:init
-
-# (Optional) Seed test users
-npm run db:seed
-
-# Start development server
-npm run dev
+npm run dev            # Start dev server with auto-reload
 ```
 
-The kiosk interface will be available at `http://localhost:3000`  
+The kiosk interface will be available at `http://localhost:3000`
 The admin panel will be at `http://localhost:3000/admin.html`
+
+## 🔄 Updates
+
+On the production server, run the bundled `UPDATE.sh`:
+
+```bash
+cd /opt/coffeel
+./UPDATE.sh
+```
+
+The script does the following automatically:
+
+1. **Pre-update DB backup** to `data/backups/coffeel_preupdate_<timestamp>.db`
+2. **Pull from GitHub** (auto-detects `main` / `master`, auto-stashes uncommitted local changes and restores them after)
+3. **Reinstall dependencies** — only if `package.json` or `package-lock.json` actually changed
+4. **Restart PM2** — only if files under `src/` changed
+5. **Configuration drift check** — scans the live server for outdated server config and offers to repair it; each item is prompted separately (default: no), so nothing is changed without explicit approval. Currently detects:
+   - missing `client_max_body_size` in the Nginx site config (would otherwise reject DB uploads with HTML 413)
+   - the legacy bash backup cron, replacing it with the current `scripts/daily-db-backup.js`-based one
+
+### Flags
+
+| Flag | Effect |
+|------|--------|
+| _(none)_ | Standard update — restarts / installs only when needed |
+| `--restart` | Force a PM2 restart even if no code changed |
+| `--deps` | Force `npm install` even if `package.json` didn't change |
+| `--help` | Show usage |
+
+If the update finishes with no changes pending (no remote commits, no force flags), the script exits early and leaves the running service alone.
 
 ## ⚙️ Configuration
 
 ### Environment Variables (`.env`)
 
+`DEPLOY.sh` generates this file for you. For manual setup, here is the full schema:
+
 ```env
 # Server
-NODE_ENV=development
+NODE_ENV=production
 PORT=3000
 HOST=0.0.0.0
 
-# Admin Authentication
-ADMIN_USER=admin
-ADMIN_PASS=your-secure-password
+# Session secret for the admin login cookie (any random 32+ byte hex string)
+SESSION_SECRET=<openssl rand -hex 32>
 
-# SMTP Configuration (for payment emails)
+# Database
+DB_PATH=./data/coffee.db
+
+# SMTP (for payment request and broadcast emails)
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -74,15 +130,26 @@ SMTP_USER=your-email@example.com
 SMTP_PASS=your-smtp-password
 SMTP_FROM="CofFeEL System <coffee@example.com>"
 
-# Bank Details (shown in payment emails)
+# Admin email — receives CC of payment requests, daily backup reports, etc.
+ADMIN_EMAIL=admin@example.com
+
+# Bank details (shown in payment emails)
 BANK_IBAN=DE89370400440532013000
 BANK_BIC=COBADEFFXXX
 BANK_OWNER="CFEL Coffee Fund"
 
-# Coffee Settings
+# Coffee price in EUR (also editable in Admin Panel → Settings)
 COFFEE_PRICE=0.50
-ADMIN_EMAIL=admin@example.com
+
+# Rate limiting (per IP)
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=60
+
+# Logging
+LOG_LEVEL=info
 ```
+
+> Admin credentials are **not** stored in `.env` — they live in the `admin_users` table. `npm run db:init` seeds a default `admin` / `admin` user; change the password from Admin Panel → Admin Users on first login.
 
 ## 📱 Kiosk Interface (`/`)
 
@@ -111,16 +178,17 @@ Click "Add User" button and fill in:
 
 ### Authentication
 
-HTTP Basic Auth using credentials from `.env`:
-- Username: `ADMIN_USER`
-- Password: `ADMIN_PASS`
+Session-based login via `/login.html`. Credentials are stored in the `admin_users` database table (bcrypt-hashed). `npm run db:init` seeds a default `admin` / `admin` account — change it on first login.
 
 ### Tabs
 
-1. **Active Users**: View all active users, confirm payments, adjust coffee counts
-2. **Deleted Users**: View soft-deleted users, restore them, confirm pending payments
-3. **Payment History**: Filterable list of all payment transactions, export to CSV
-4. **Settings**: Manage coffee price, bank details, admin email
+1. **Active Users** — view active users, confirm payments, adjust tabs
+2. **Deleted Users** — view soft-deleted users, restore them, confirm pending payments
+3. **Payment History** — filterable list of all payment transactions, export to CSV
+4. **Settings** — coffee price, SMTP, bank details, admin email
+5. **Broadcasts** — compose and send announcement emails to all active users
+6. **Admin Users** — manage admin accounts, change passwords
+7. **Backups** — create / download / upload / restore database backups
 
 ### Admin Actions
 
@@ -199,8 +267,13 @@ curl -X POST http://localhost:3000/api/users \
 
 **Confirm Payment (Admin):**
 ```bash
-curl -X POST http://localhost:3000/api/users/1/confirm-payment \
-  -u admin:password \
+# Admin endpoints require a session cookie from POST /api/admin/login.
+# Easiest path: store the cookie and reuse it.
+curl -c cookies.txt -X POST http://localhost:3000/api/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "yourpassword"}'
+
+curl -b cookies.txt -X POST http://localhost:3000/api/users/1/confirm-payment \
   -H "Content-Type: application/json" \
   -d '{"amount": 5.00, "notes": "Bank transfer received"}'
 ```
@@ -237,22 +310,26 @@ curl -X POST http://localhost:3000/api/users/1/confirm-payment \
 ### Available Scripts
 
 ```bash
-npm start          # Production mode
-npm run dev        # Development with auto-reload
-npm run db:init    # Initialize/reset database
-npm run db:seed    # Add test users
-npm run db:backup  # Create backup
-npm test           # Run tests
-npm run lint       # Run ESLint
+npm start           # Production mode
+npm run dev         # Development with auto-reload
+npm run db:init     # Initialize/reset database
+npm run db:seed     # Add test users
+npm run db:backup   # Create backup
+npm run db:migrate  # Apply pending schema migrations
+npm test            # Run tests with coverage
+npm run lint        # Run ESLint
+npm run lint:fix    # Auto-fix lint issues
 ```
 
 ## 🔒 Security
 
-- HTTPS required for production
-- HTTP Basic Auth for admin panel
+- HTTPS required for production (Let's Encrypt automated by `DEPLOY.sh`)
+- Session-based admin login with bcrypt-hashed passwords in DB — change the default `admin` / `admin` immediately
 - Prepared statements (SQL injection prevention)
 - Rate limiting: 60 requests/minute per IP
 - Input validation on client and server
+- `.env` file permissions set to `600` by `DEPLOY.sh`
+- Nginx security headers (`X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`)
 
 ## 🚨 Troubleshooting
 
@@ -267,7 +344,7 @@ npm run lint       # Run ESLint
 
 1. Reset database: `npm run db:init`
 2. Check write permissions on `data/` directory
-3. Verify `DATABASE_PATH` in `.env` is correct
+3. Verify `DB_PATH` in `.env` is correct
 
 ### Email not sending
 
@@ -278,9 +355,16 @@ npm run lint       # Run ESLint
 
 ### Admin panel not loading
 
-1. Verify `ADMIN_USER` and `ADMIN_PASS` in `.env`
-2. Clear browser cache and try incognito mode
-3. Check browser console for JavaScript errors
+1. Visit `/login.html` directly and sign in with the credentials from the `admin_users` table (default `admin` / `admin` after `db:init`).
+2. If you forgot the password and another admin user still exists, log in as that user and reset the password under Admin Panel → Admin Users.
+3. If no admin login works, reset on the server with sqlite3 + bcrypt — generate a hash and update the row:
+   ```bash
+   cd /opt/coffeel
+   node -e "console.log(require('bcryptjs').hashSync('newpass', 10))"
+   sqlite3 data/coffee.db "UPDATE admin_users SET password_hash = '<hash from above>' WHERE username = 'admin';"
+   ```
+4. Clear browser cache and try incognito mode.
+5. Check browser console for JavaScript errors.
 
 ### iPad kiosk issues
 

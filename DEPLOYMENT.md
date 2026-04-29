@@ -4,6 +4,22 @@ This guide covers deploying CofFeEL to an Ubuntu server with Nginx, PM2, SSL, an
 
 **Current Production Server:** `cfelm-pcx65344.desy.de` (131.169.224.146)
 
+## Automated Deployment (Recommended)
+
+For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` runs every step in this guide automatically:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
+```
+
+It walks through 13 steps interactively: install build tools, Node 20, PM2, Nginx (with `client_max_body_size 50M` for backup uploads + standard security headers), clone the repo to `/opt/coffeel`, install npm dependencies, generate `.env` (optional interactive SMTP / bank wizard, otherwise minimal config), initialize the database, configure Nginx as reverse proxy, start under PM2, optional UFW firewall, optional Let's Encrypt SSL, optional daily backup cron.
+
+After it finishes, the kiosk is at `http://<server-ip>/` and the admin panel at `http://<server-ip>/admin.html` (default login `admin` / `admin` — change immediately).
+
+For updates, use [`UPDATE.sh`](#updates) (see below).
+
+The rest of this document covers the **manual** steps that `DEPLOY.sh` automates — useful when the script can't run (e.g. behind a strict proxy), when you need to debug, or when you want to understand each piece.
+
 ## Prerequisites
 
 - Ubuntu 22.04 LTS or newer (tested on Ubuntu 24.04.3 LTS)
@@ -12,26 +28,7 @@ This guide covers deploying CofFeEL to an Ubuntu server with Nginx, PM2, SSL, an
 - SMTP credentials for email sending
 - Domain name (optional, for SSL)
 
-## Quick Deploy (Existing Server)
-
-If the server is already set up, use this one-liner from your development machine:
-
-```bash
-rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
-  /localpath/to/coffeel/ user@server:/opt/coffeel/ && \
-  ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
-```
-
-Or step by step:
-
-```bash
-# 1. Sync files (excludes data and config)
-rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
-  /localpath/to/coffeel/ user@server:/opt/coffeel/
-
-# 2. Install dependencies and restart
-ssh user@server "cd /opt/coffeel && npm install --production && pm2 restart coffeel"
-```
+> **Already deployed?** For updating an existing installation, jump to [Updates](#updates) — `UPDATE.sh` handles backup, pull, dependency check, restart, and config-drift detection in one go.
 
 ---
 
@@ -110,17 +107,20 @@ cp .env.example .env
 nano .env
 ```
 
-Edit `.env` with production values:
+Edit `.env` with production values. This is the same schema `DEPLOY.sh` generates:
 
 ```env
 NODE_ENV=production
 PORT=3000
 HOST=0.0.0.0
 
-# Database (created automatically)
+# Session secret for the admin login cookie
+SESSION_SECRET=<openssl rand -hex 32>
+
+# Database (created automatically by db:init)
 DB_PATH=./data/coffee.db
 
-# SMTP (configure in Admin Panel or here)
+# SMTP (also configurable in Admin Panel → Settings)
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -128,15 +128,26 @@ SMTP_USER=coffee@example.com
 SMTP_PASS=your-smtp-password
 SMTP_FROM="CofFeEL <coffee@example.com>"
 
+# Admin email — receives CC of payment requests, daily backup reports
+ADMIN_EMAIL=admin@example.com
+
 # Bank details
 BANK_IBAN=DE89370400440532013000
 BANK_BIC=COBADEFFXXX
 BANK_OWNER="CFEL Coffee Fund"
 
-# Initial settings (can be changed in Admin Panel)
+# Coffee price in EUR (also editable in Admin Panel)
 COFFEE_PRICE=0.50
-ADMIN_EMAIL=admin@example.com
+
+# Rate limiting (per IP)
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=60
+
+# Logging
+LOG_LEVEL=info
 ```
+
+> **Admin credentials** are not stored in `.env`. They live in the `admin_users` table — `npm run db:init` seeds a default `admin` / `admin` user; change the password from Admin Panel → Admin Users on first login.
 
 ### Initialize Database
 
@@ -227,6 +238,15 @@ server {
     listen 80;
     server_name _;  # Accept any hostname (or replace with your domain)
 
+    # Allow DB backup uploads (Admin Panel → Backups → Upload). The default
+    # 1 MB cap rejects with HTML 413, which the JSON-parsing frontend can't read.
+    client_max_body_size 50M;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -236,6 +256,10 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 }
 ```
@@ -259,7 +283,7 @@ sudo systemctl reload nginx
 - **Kiosk UI:** `http://your-server-ip/`
 - **Admin Panel:** `http://your-server-ip/admin.html`
 
-Default admin credentials: `admin` / `admin` — **Change immediately!**
+Default admin credentials: `admin` / `admin` — **change immediately** in Admin Panel → Admin Users.
 
 ---
 
@@ -303,42 +327,29 @@ Backups are stored in `/opt/coffeel/data/backups/`.
 
 ### Automated Daily Backups (Optional)
 
-For additional safety, set up automated backups:
+`DEPLOY.sh` step 13 sets this up automatically. To do it manually, install a cron job that runs `scripts/daily-db-backup.js`:
 
 ```bash
-sudo nano /opt/coffeel/scripts/daily-backup.sh
-```
-
-```bash
-#!/bin/bash
-# CofFeEL Daily Backup Script
-
-BACKUP_DIR="/opt/coffeel/data/backups"
-DB_PATH="/opt/coffeel/data/coffee.db"
-DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS=30
-
-# Create backup directory
-mkdir -p $BACKUP_DIR
-
-# Create backup with SQLite online backup
-sqlite3 $DB_PATH ".backup '$BACKUP_DIR/coffeel_auto_$DATE.db'"
-
-# Remove old auto-backups (older than KEEP_DAYS)
-find $BACKUP_DIR -name "coffeel_auto_*.db" -mtime +$KEEP_DAYS -delete
-
-echo "$(date): Backup created" >> /var/log/coffeel-backup.log
-```
-
-### Make Executable & Setup Cron
-
-```bash
-sudo chmod +x /opt/coffeel/scripts/daily-backup.sh
+# Resolve the absolute path to node — cron has no reliable PATH
+NODE_BIN=$(command -v node)
 
 # Add to crontab (daily at 3 AM)
-crontab -e
-# Add line: 0 3 * * * /opt/coffeel/scripts/daily-backup.sh
+(crontab -l 2>/dev/null | grep -v "coffeel\|daily-db-backup\|daily-backup"; \
+ echo "0 3 * * * cd /opt/coffeel && $NODE_BIN scripts/daily-db-backup.js >> /var/log/coffeel-backup.log 2>&1") | crontab -
+
+sudo touch /var/log/coffeel-backup.log
+sudo chown $USER:$USER /var/log/coffeel-backup.log
 ```
+
+What the script does:
+
+- Creates a fresh SQLite online backup in `/opt/coffeel/data/backups/`
+- Sends a stats report (user count, balance totals, etc.) with the `.db` file attached as e-mail to `admin_email` from the `settings` table
+- Prunes auto-backups older than 30 days
+
+> SMTP host/user/password and `admin_email` must be configured in Admin Panel → Settings before the first 3 AM run, otherwise the e-mail step fails (the backup itself still happens).
+
+> If you previously installed the legacy `daily-backup.sh` (bash) cron, `UPDATE.sh` detects this on the next run and offers to replace it.
 
 ## 7. Firewall Configuration
 
@@ -356,14 +367,14 @@ sudo ufw enable
 ### Check Application Status
 
 ```bash
-sudo -u coffeel pm2 status
-sudo -u coffeel pm2 logs coffeel
+pm2 status
+pm2 logs coffeel
 ```
 
 ### Monitor Resources
 
 ```bash
-sudo -u coffeel pm2 monit
+pm2 monit
 ```
 
 ### Health Check Endpoint
@@ -379,34 +390,62 @@ curl http://localhost:3000/api/health
 3. Set interval: 5 minutes
 4. Add email alert
 
-## Updating the Application
+## Updates
 
-### From Development Machine (recommended)
+### On the server (recommended): `UPDATE.sh`
 
 ```bash
-# One-liner deploy
+cd /opt/coffeel
+./UPDATE.sh
+```
+
+This is the primary update path. It does the following automatically:
+
+1. **Pre-update DB backup** to `data/backups/coffeel_preupdate_<timestamp>.db`
+2. **Auto-stash** any uncommitted local changes, `git pull origin main` (auto-detects `main` / `master`), then `git stash pop`
+3. **`npm install --production`** — only if `package.json` or `package-lock.json` changed
+4. **`pm2 restart coffeel`** — only if any file under `src/` changed
+5. **Configuration drift check** — compares the live server config against what `DEPLOY.sh` would produce now and offers to repair drift item by item (each prompt defaults to **no**, so nothing changes without explicit confirmation):
+   - missing `client_max_body_size 50M;` in the Nginx site config
+   - legacy bash backup cron → replaced with the `daily-db-backup.js`-based one
+
+If there are no remote commits and no force flags, the script exits early without restarting the service.
+
+#### Flags
+
+| Flag | Effect |
+|------|--------|
+| _(none)_ | Standard update — restarts / installs only when needed |
+| `--restart` | Force a PM2 restart even if no code changed |
+| `--deps` | Force `npm install` even if `package.json` didn't change |
+| `--help` | Show usage |
+
+### Manual fallback: `git pull` on the server
+
+If `UPDATE.sh` is not available (e.g. for very old checkouts) or you need fine-grained control:
+
+```bash
+cd /opt/coffeel
+
+# Always back up first
+sqlite3 data/coffee.db ".backup 'data/backups/coffee_preupdate_$(date +%Y%m%d_%H%M%S).db'"
+
+git pull
+npm install --production   # only needed if package*.json changed
+pm2 restart coffeel
+```
+
+### From a development machine (special case)
+
+For pushing un-committed local changes during development without going through GitHub:
+
+```bash
 rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'data' --exclude '.env' --exclude 'coverage' \
   /path/to/coffeel/ user@server:/opt/coffeel/ && \
   ssh user@server "pm2 restart coffeel"
 ```
 
-### On Server (git pull)
-
-```bash
-cd /opt/coffeel
-
-# Create backup first!
-cp data/coffee.db data/coffee_backup_$(date +%Y%m%d).db
-
-# Pull updates
-git pull
-
-# Install dependencies (if package.json changed)
-npm install --production
-
-# Restart application
-pm2 restart coffeel
-```
+This bypasses `UPDATE.sh` (no backup, no drift check, always restarts). Prefer `git push` + `./UPDATE.sh` for normal deploys.
 
 ## Useful Commands
 
@@ -484,14 +523,16 @@ pm2 start coffeel
 
 ## Security Checklist
 
-- [ ] Strong ADMIN_PASS in .env
+- [ ] Default `admin` / `admin` password changed in Admin Panel → Admin Users
 - [ ] HTTPS enabled and forced
 - [ ] Firewall configured (UFW)
-- [ ] .env file has restricted permissions (600)
-- [ ] Regular backups running
-- [ ] PM2 configured for auto-restart
-- [ ] Nginx security headers enabled
-- [ ] Server updates automated
+- [ ] `.env` file has restricted permissions (600)
+- [ ] `SESSION_SECRET` in `.env` is a strong random value (auto-generated by `DEPLOY.sh`)
+- [ ] Regular backups running (cron via `daily-db-backup.js`)
+- [ ] PM2 configured for auto-restart on reboot (`pm2 startup` + `pm2 save`)
+- [ ] Nginx security headers enabled (`X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`)
+- [ ] Nginx `client_max_body_size 50M` set (so backup uploads work)
+- [ ] Server OS updates automated (e.g. `unattended-upgrades`)
 
 ## Architecture Overview
 
