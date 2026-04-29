@@ -398,6 +398,10 @@ server {
     listen 80;
     server_name _;
 
+    # Allow DB backup uploads (Admin Panel → Restore). The default 1 MB
+    # cap returns an HTML 413 page that the JSON-parsing frontend can't read.
+    client_max_body_size 50M;
+
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -513,37 +517,30 @@ setup_ssl() {
 }
 
 setup_backup_cron() {
-    if prompt_yes_no "Do you want to set up automated daily backups?" "y"; then
+    if prompt_yes_no "Do you want to set up automated daily backups (with email to admin)?" "y"; then
         info "Setting up daily backup cron job..."
 
-        # Create backup script
-        sudo tee "$INSTALL_DIR/scripts/daily-backup.sh" > /dev/null << 'EOF'
-#!/bin/bash
-# CofFeEL Daily Backup Script
+        # Resolve absolute path to node — cron has no reliable PATH
+        local node_bin
+        node_bin=$(command -v node)
+        if [ -z "$node_bin" ]; then
+            error "node not found in PATH — cannot configure backup cron"
+        fi
 
-BACKUP_DIR="/opt/coffeel/data/backups"
-DB_PATH="/opt/coffeel/data/coffee.db"
-DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS=30
+        # Daily 3 AM cron: runs scripts/daily-db-backup.js (creates .db backup,
+        # emails admin with stats + attachment, prunes backups older than 30 days).
+        # SMTP credentials and admin_email are read from the settings table at runtime.
+        # Strip any prior coffeel/daily-backup entries first to avoid duplicates.
+        (crontab -l 2>/dev/null | grep -v "coffeel\|daily-db-backup\|daily-backup"; \
+         echo "0 3 * * * cd $INSTALL_DIR && $node_bin scripts/daily-db-backup.js >> /var/log/coffeel-backup.log 2>&1") | crontab -
 
-# Create backup directory
-mkdir -p $BACKUP_DIR
+        # Make sure the log file exists and is writable by the current user
+        sudo touch /var/log/coffeel-backup.log
+        sudo chown "$USER:$USER" /var/log/coffeel-backup.log
 
-# Create backup with SQLite online backup
-sqlite3 $DB_PATH ".backup '$BACKUP_DIR/coffeel_auto_$DATE.db'"
-
-# Remove old auto-backups (older than KEEP_DAYS)
-find $BACKUP_DIR -name "coffeel_auto_*.db" -mtime +$KEEP_DAYS -delete
-
-echo "$(date): Backup created - coffeel_auto_$DATE.db" >> /var/log/coffeel-backup.log
-EOF
-
-        sudo chmod +x "$INSTALL_DIR/scripts/daily-backup.sh"
-
-        # Add cron job (daily at 3 AM)
-        (crontab -l 2>/dev/null | grep -v "coffeel"; echo "0 3 * * * $INSTALL_DIR/scripts/daily-backup.sh") | crontab -
-
-        success "Daily backup cron job configured (runs at 3 AM)"
+        success "Daily backup cron job configured (runs at 3 AM, sends email to admin)"
+        warn "SMTP host/user/pass and admin_email must be configured in the Admin Panel"
+        warn "before the first cron run — otherwise the email step will fail."
     fi
 }
 
