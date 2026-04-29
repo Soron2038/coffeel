@@ -66,6 +66,22 @@ error() {
     exit 1
 }
 
+prompt_yes_no() {
+    local message="$1"
+    local default="${2:-n}"
+    local result
+
+    if [ "$default" = "y" ]; then
+        read -rp "$(echo -e "${CYAN}$message${NC} [Y/n]: ")" result
+        result="${result:-y}"
+    else
+        read -rp "$(echo -e "${CYAN}$message${NC} [y/N]: ")" result
+        result="${result:-n}"
+    fi
+
+    [[ "$result" =~ ^[Yy]$ ]]
+}
+
 show_help() {
     echo "CofFeEL Update Script"
     echo ""
@@ -264,6 +280,113 @@ restart_service() {
     fi
 }
 
+# ============================================
+# CONFIGURATION DRIFT CHECKS
+# ============================================
+#
+# DEPLOY.sh evolves over time, but UPDATE.sh only pulls code — it does not
+# touch nginx config or cron entries by default. These checks detect when an
+# existing host is running with outdated server config and offer to repair it.
+# Each drift item is prompted separately (default: no) so the admin has to
+# consciously approve every change instead of waving them through.
+
+handle_nginx_drift() {
+    local nginx_conf="/etc/nginx/sites-available/coffeel"
+
+    echo ""
+    warn "Nginx config drift:"
+    warn "  $nginx_conf has no 'client_max_body_size' directive."
+    warn "  The default 1 MB cap rejects DB backup uploads (Admin Panel → Restore)"
+    warn "  with an HTML 413 page that the JSON-parsing frontend cannot read."
+    echo ""
+
+    if ! prompt_yes_no "Add 'client_max_body_size 50M;' and reload nginx?" "n"; then
+        warn "Skipped — large DB backup uploads via Admin Panel will keep failing."
+        warn "  Manual fix later: edit $nginx_conf, add 'client_max_body_size 50M;'"
+        warn "  inside each server block, then run: sudo systemctl reload nginx"
+        return 0
+    fi
+
+    info "Patching $nginx_conf..."
+    # Insert directive after every 'server_name' line. If certbot has added a
+    # 443 server block, both blocks get the limit (each server block needs it).
+    sudo sed -i '/^\s*server_name/a\    client_max_body_size 50M;' "$nginx_conf"
+
+    info "Testing nginx config..."
+    if sudo nginx -t; then
+        sudo systemctl reload nginx
+        success "Nginx config updated and reloaded"
+    else
+        warn "Nginx config test failed. Please review $nginx_conf manually."
+        warn "  The directive was inserted but nginx was NOT reloaded."
+    fi
+}
+
+handle_cron_drift() {
+    echo ""
+    warn "Cron drift:"
+    warn "  Daily backup cron still calls the legacy bash script (daily-backup.sh)."
+    warn "  Current setup uses scripts/daily-db-backup.js — sends backup + stats"
+    warn "  to admin via email."
+    echo ""
+
+    if ! prompt_yes_no "Replace the bash backup cron with the node-based one?" "n"; then
+        warn "Skipped — daily backups continue with the old bash script (no email)."
+        return 0
+    fi
+
+    local node_bin
+    node_bin=$(command -v node)
+    if [ -z "$node_bin" ]; then
+        warn "node not found in PATH — skipping cron replacement"
+        return 1
+    fi
+
+    # Save the current crontab before mutating, so the admin can roll back
+    local cron_backup="/tmp/coffeel-crontab-pre-update-$(date +%s).bak"
+    crontab -l 2>/dev/null > "$cron_backup"
+    info "Old crontab saved to $cron_backup"
+
+    # Strip any prior coffeel/daily-backup entries, append the new one
+    (crontab -l 2>/dev/null | grep -v "coffeel\|daily-db-backup\|daily-backup"; \
+     echo "0 3 * * * cd $INSTALL_DIR && $node_bin scripts/daily-db-backup.js >> /var/log/coffeel-backup.log 2>&1") | crontab -
+
+    sudo touch /var/log/coffeel-backup.log
+    sudo chown "$USER:$USER" /var/log/coffeel-backup.log
+
+    success "Cron entry replaced"
+    warn "SMTP host/user/pass and admin_email must be set in the Admin Panel"
+    warn "before the next 3 AM run, otherwise the email step will fail."
+
+    if [ -f "$INSTALL_DIR/scripts/daily-backup.sh" ]; then
+        info "(Legacy $INSTALL_DIR/scripts/daily-backup.sh remains on disk; remove manually if desired.)"
+    fi
+}
+
+check_config_drift() {
+    info "Scanning server configuration for drift..."
+
+    local nginx_drift=false
+    local cron_drift=false
+
+    if [ -f "/etc/nginx/sites-available/coffeel" ] && \
+       ! sudo grep -q "client_max_body_size" "/etc/nginx/sites-available/coffeel"; then
+        nginx_drift=true
+    fi
+
+    if crontab -l 2>/dev/null | grep -q "daily-backup.sh"; then
+        cron_drift=true
+    fi
+
+    if [ "$nginx_drift" = false ] && [ "$cron_drift" = false ]; then
+        success "No configuration drift detected"
+        return 0
+    fi
+
+    [ "$nginx_drift" = true ] && handle_nginx_drift
+    [ "$cron_drift" = true ] && handle_cron_drift
+}
+
 verify_update() {
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
@@ -360,7 +483,13 @@ main() {
     echo -e "${CYAN}  Step 4: Restart Service${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     check_restart_needed
-    
+
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  Step 5: Configuration Drift${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    check_config_drift
+
     verify_update
 }
 
