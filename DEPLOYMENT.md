@@ -12,7 +12,7 @@ For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` runs every step in thi
 curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
 ```
 
-It walks through 13 steps interactively: install build tools, Node 20, PM2, Nginx (with `client_max_body_size 50M` for backup uploads + standard security headers), clone the repo to `/opt/coffeel`, install npm dependencies, generate `.env` (optional interactive SMTP / bank wizard, otherwise minimal config), initialize the database, configure Nginx as reverse proxy, start under PM2, optional UFW firewall, optional Let's Encrypt SSL, optional daily backup cron.
+It walks through 13 steps interactively: install build tools, Node 20, PM2, Nginx (with `client_max_body_size 50M` for backup uploads + standard security headers), clone the repo to `/opt/coffeel`, install npm dependencies, generate `.env` (optional interactive SMTP / bank wizard, otherwise minimal config), initialize the database, configure Nginx as reverse proxy, start under PM2 and register `pm2-<user>.service` via systemd so the app survives reboots, optional UFW firewall, optional Let's Encrypt SSL, optional daily backup cron.
 
 After it finishes, the kiosk is at `http://<server-ip>/` and the admin panel at `http://<server-ip>/admin.html` (default login `admin` / `admin` — change immediately).
 
@@ -189,10 +189,21 @@ pm2 save
 
 ### Setup PM2 Startup (survives reboot)
 
+> `DEPLOY.sh` already handles this automatically (registers `pm2-<user>.service`).
+> The steps below are only needed for manual installs or if the systemd unit
+> later goes missing — `UPDATE.sh` will also detect that drift and offer to
+> re-register it on the next run.
+
 ```bash
 pm2 startup
 # Follow the instructions printed by this command (copy & run the sudo line)
 pm2 save
+```
+
+Verify with:
+
+```bash
+systemctl is-enabled pm2-$USER   # expected: enabled
 ```
 
 ### Verify Application
@@ -408,6 +419,7 @@ This is the primary update path. It does the following automatically:
 5. **Configuration drift check** — compares the live server config against what `DEPLOY.sh` would produce now and offers to repair drift item by item (each prompt defaults to **no**, so nothing changes without explicit confirmation):
    - missing `client_max_body_size 50M;` in the Nginx site config
    - legacy bash backup cron → replaced with the `daily-db-backup.js`-based one
+   - missing PM2 systemd autostart (`pm2-<user>.service` not enabled) → registered so CofFeEL auto-starts after reboots
 
 If there are no remote commits and no force flags, the script exits early without restarting the service.
 

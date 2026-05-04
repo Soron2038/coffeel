@@ -453,16 +453,27 @@ start_application() {
     # Save PM2 configuration
     pm2 save
 
-    # Setup startup script
-    info "Setting up PM2 startup script..."
-    echo
-    warn "PM2 will now generate a startup command. Please run the command it outputs:"
-    echo
-    pm2 startup
-
-    echo
-    info "After running the startup command above, run: pm2 save"
-    echo
+    # Register the systemd unit so PM2 (and therefore CofFeEL) auto-starts
+    # after every reboot — including silent unattended-upgrades reboots.
+    # Without this, the server comes back from a reboot with nothing on
+    # port 3000 and nginx returns 502 until someone SSHes in to run pm2 start.
+    info "Configuring PM2 systemd autostart..."
+    if systemctl is-enabled "pm2-$USER" &>/dev/null; then
+        success "PM2 autostart already enabled (pm2-$USER.service)"
+    elif sudo env PATH="$PATH:/usr/bin" pm2 startup systemd -u "$USER" --hp "$HOME"; then
+        pm2 save
+        if systemctl is-enabled "pm2-$USER" &>/dev/null; then
+            success "PM2 autostart enabled (pm2-$USER.service)"
+        else
+            warn "pm2 startup ran but pm2-$USER.service is still not enabled."
+            warn "  Verify with: systemctl is-enabled pm2-$USER"
+        fi
+    else
+        warn "pm2 startup failed. CofFeEL will NOT auto-recover after a reboot."
+        warn "  Run manually later:"
+        warn "    sudo env PATH=\$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME"
+        warn "    pm2 save"
+    fi
 
     success "Application started"
 }

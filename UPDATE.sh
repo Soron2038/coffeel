@@ -322,6 +322,40 @@ handle_nginx_drift() {
     fi
 }
 
+handle_pm2_startup_drift() {
+    echo ""
+    warn "PM2 autostart drift:"
+    warn "  pm2-$USER.service is not enabled in systemd."
+    warn "  Without it, PM2 does NOT come back after a server reboot — the next"
+    warn "  unattended-upgrades reboot will leave nginx returning 502 until"
+    warn "  someone SSHes in and runs 'pm2 start' manually."
+    echo ""
+
+    if ! prompt_yes_no "Enable PM2 autostart now (registers pm2-$USER.service via systemd)?" "n"; then
+        warn "Skipped — CofFeEL will NOT auto-recover from a server reboot."
+        warn "  Manual fix later:"
+        warn "    sudo env PATH=\$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME"
+        warn "    pm2 save"
+        return 0
+    fi
+
+    info "Registering pm2-$USER.service..."
+    if ! sudo env PATH="$PATH:/usr/bin" pm2 startup systemd -u "$USER" --hp "$HOME"; then
+        warn "pm2 startup failed. Run it manually and re-run UPDATE.sh."
+        return 1
+    fi
+
+    info "Saving current PM2 process list..."
+    pm2 save
+
+    if systemctl is-enabled "pm2-$USER" &>/dev/null; then
+        success "PM2 autostart enabled (pm2-$USER.service)"
+    else
+        warn "pm2 startup ran but pm2-$USER.service is still not enabled."
+        warn "  Verify manually: systemctl is-enabled pm2-$USER"
+    fi
+}
+
 handle_cron_drift() {
     echo ""
     warn "Cron drift:"
@@ -368,6 +402,7 @@ check_config_drift() {
 
     local nginx_drift=false
     local cron_drift=false
+    local pm2_startup_drift=false
 
     if [ -f "/etc/nginx/sites-available/coffeel" ] && \
        ! sudo grep -q "client_max_body_size" "/etc/nginx/sites-available/coffeel"; then
@@ -378,13 +413,20 @@ check_config_drift() {
         cron_drift=true
     fi
 
-    if [ "$nginx_drift" = false ] && [ "$cron_drift" = false ]; then
+    # PM2 autostart: required so CofFeEL survives a reboot. Detected by the
+    # absence of an enabled systemd unit at pm2-<user>.service.
+    if ! systemctl is-enabled "pm2-$USER" &>/dev/null; then
+        pm2_startup_drift=true
+    fi
+
+    if [ "$nginx_drift" = false ] && [ "$cron_drift" = false ] && [ "$pm2_startup_drift" = false ]; then
         success "No configuration drift detected"
         return 0
     fi
 
     [ "$nginx_drift" = true ] && handle_nginx_drift
     [ "$cron_drift" = true ] && handle_cron_drift
+    [ "$pm2_startup_drift" = true ] && handle_pm2_startup_drift
 }
 
 verify_update() {
