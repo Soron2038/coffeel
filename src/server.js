@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 
 const db = require('./db/database');
+const SQLiteSessionStore = require('./db/sessionStore');
 const apiRouter = require('./routes/api');
 const { requireAdminPage } = require('./routes/admin');
 const adminUserService = require('./services/adminUserService');
@@ -21,6 +22,34 @@ const HOST = process.env.HOST || '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // ============================================
+// DATABASE INIT (must run before session middleware
+// so the sessions table exists when the store is created)
+// ============================================
+
+try {
+  db.initialize();
+  logger.info('Database initialized successfully');
+
+  // Apply pending schema migrations. Idempotent: skipped if already at HEAD.
+  // Hard-fail on error rather than starting with a half-migrated schema.
+  const { runMigrations } = require('./db/migrations');
+  const migrationResult = runMigrations(db.getDb(), { logger });
+  if (migrationResult.applied.length > 0) {
+    logger.info('Migrations applied', { applied: migrationResult.applied });
+  }
+
+  // Ensure default admin user exists
+  adminUserService.ensureDefaultAdmin();
+
+  // Recover any broadcasts that were in flight when the server last shut down.
+  const broadcastService = require('./services/broadcastService');
+  broadcastService.recoverInterruptedBroadcasts();
+} catch (err) {
+  logger.error('Failed to initialize database', { error: err.message });
+  process.exit(1);
+}
+
+// ============================================
 // MIDDLEWARE
 // ============================================
 
@@ -33,9 +62,20 @@ app.use(express.json());
 // URL-encoded body parser
 app.use(express.urlencoded({ extended: true }));
 
-// Session middleware
-const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+// Session middleware. Backed by SQLite so admin logins survive restarts/reloads.
+// SESSION_SECRET must be stable across restarts — without it, persisted sessions
+// can no longer be verified after each boot. DEPLOY.sh writes one to .env.
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  if (NODE_ENV === 'production') {
+    logger.error('SESSION_SECRET is not set in production. Set it in .env (e.g. openssl rand -hex 32).');
+    process.exit(1);
+  }
+  sessionSecret = crypto.randomBytes(32).toString('hex');
+  logger.warn('SESSION_SECRET not set, generating an ephemeral one (sessions will not survive restarts)');
+}
 app.use(session({
+  store: new SQLiteSessionStore(db.getDb()),
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -101,31 +141,6 @@ app.use((err, req, res, next) => {
 // ============================================
 // SERVER STARTUP
 // ============================================
-
-// Initialize database
-try {
-  db.initialize();
-  logger.info('Database initialized successfully');
-
-  // Apply pending schema migrations. Idempotent: skipped if already at HEAD.
-  // Hard-fail on error rather than starting with a half-migrated schema.
-  const { runMigrations } = require('./db/migrations');
-  const migrationResult = runMigrations(db.getDb(), { logger });
-  if (migrationResult.applied.length > 0) {
-    logger.info('Migrations applied', { applied: migrationResult.applied });
-  }
-
-  // Ensure default admin user exists
-  adminUserService.ensureDefaultAdmin();
-
-  // Recover any broadcasts that were in flight when the server last shut down.
-  // Done after schema init, before accepting requests.
-  const broadcastService = require('./services/broadcastService');
-  broadcastService.recoverInterruptedBroadcasts();
-} catch (err) {
-  logger.error('Failed to initialize database', { error: err.message });
-  process.exit(1);
-}
 
 // Start server
 const server = app.listen(PORT, HOST, () => {

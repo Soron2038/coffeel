@@ -202,6 +202,37 @@ const runMigrations = (rawDb, opts = {}) => {
     applied.push(`${id}: ${desc}`);
   })();
 
+  // ====================================================================
+  // M3: Create sessions table (for SQLite-backed express-session store)
+  // ====================================================================
+  (function migration3() {
+    const id = 'M3';
+    const desc = 'Create sessions table';
+
+    const exists = rawDb
+      .prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'sessions\'')
+      .get();
+
+    if (exists) {
+      skipped.push(`${id}: already applied`);
+      return;
+    }
+
+    log.info(`Applying migration ${id}: ${desc}`);
+
+    rawDb.exec(`
+      CREATE TABLE sessions (
+        sid TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL,
+        data TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+    `);
+
+    applied.push(`${id}: ${desc}`);
+  })();
+
   return { applied, skipped };
 };
 
