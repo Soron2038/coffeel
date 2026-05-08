@@ -158,7 +158,20 @@ fetch_updates() {
         error "Could not detect default branch (main/master)"
     fi
     info "Using branch: $default_branch"
-    
+
+    # Pre-flight: refuse to proceed with leftover unmerged paths.
+    # `git stash` silently fails on unmerged entries, so a stale conflict
+    # from a previous aborted merge would slip past the stash and break
+    # `git pull` later with a confusing message.
+    if [ -n "$(git ls-files --unmerged 2>/dev/null)" ]; then
+        echo ""
+        warn "Repository has unresolved merge conflicts from a previous operation:"
+        git ls-files --unmerged | awk '{print "  - " $4}' | sort -u
+        echo ""
+        error "Resolve them first: 'git checkout HEAD -- <file>' to discard local conflict, \
+or 'git add <file>' after manual fix. Then re-run UPDATE.sh."
+    fi
+
     # Stash any local changes (like .env modifications)
     local has_changes=false
     if ! git diff --quiet 2>/dev/null; then
@@ -210,8 +223,11 @@ fetch_updates() {
     fi
     
     success "Repository updated"
-    
-    # Export flag for dependency check
+
+    # Export the pre-pull hash so dependency/restart checks can diff against
+    # ALL pulled commits, not just the last one (`HEAD~1` would miss code
+    # changes when several commits arrive in one pull).
+    export PRE_PULL_HEAD="$local_hash"
     export UPDATES_PULLED=true
 }
 
@@ -222,9 +238,9 @@ check_dependency_changes() {
         needs_npm_install=true
         info "Force flag set, will reinstall dependencies"
     elif [ "${UPDATES_PULLED:-false}" = true ]; then
-        # Check if package.json or package-lock.json changed in the last commit
+        # Diff across ALL pulled commits (PRE_PULL_HEAD..HEAD), not just the last one.
         cd "$INSTALL_DIR"
-        if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -qE "^package(-lock)?\.json$"; then
+        if git diff --name-only "${PRE_PULL_HEAD:-HEAD~1}" HEAD 2>/dev/null | grep -qE "^package(-lock)?\.json$"; then
             needs_npm_install=true
             info "package.json or package-lock.json changed"
         fi
@@ -250,9 +266,9 @@ check_restart_needed() {
     if [ "$FORCE_RESTART" = true ]; then
         needs_restart=true
     elif [ "${UPDATES_PULLED:-false}" = true ]; then
-        # Check if server files changed
+        # Diff across ALL pulled commits (PRE_PULL_HEAD..HEAD), not just the last one.
         cd "$INSTALL_DIR"
-        if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -qE "^src/"; then
+        if git diff --name-only "${PRE_PULL_HEAD:-HEAD~1}" HEAD 2>/dev/null | grep -qE "^src/"; then
             needs_restart=true
             info "Server files changed, restart needed"
         fi
