@@ -4,7 +4,7 @@ const fs = require('fs');
 const logger = require('../utils/logger');
 
 // Database file path
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/coffeel.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/coffee.db');
 
 // Ensure data directory exists
 const dataDir = path.dirname(DB_PATH);
