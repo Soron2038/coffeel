@@ -315,6 +315,9 @@ router.get('/broadcasts/:id', requireAdmin, asyncHandler(async (req, res) => {
   if (!broadcast) {
     return res.status(404).json({ error: 'Broadcast not found' });
   }
+  // Bounces arrive asynchronously from the IMAP poller, so they aren't
+  // part of the broadcast row itself — attach them at read time.
+  broadcast.bounces = broadcastService.getBroadcastBounces(id);
   res.json(broadcast);
 }));
 

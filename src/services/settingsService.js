@@ -78,6 +78,14 @@ const updateSetting = (key, value) => {
     'smtp_user',
     'smtp_pass',
     'smtp_from',
+    'imap_host',
+    'imap_port',
+    'imap_secure',
+    'imap_user',
+    'imap_pass',
+    'imap_inbox_folder',
+    'imap_processed_folder',
+    'imap_poll_interval_minutes',
   ];
 
   if (!allowedKeys.includes(key)) {

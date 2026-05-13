@@ -151,7 +151,19 @@ const elements = {
   broadcastDetailBody: document.getElementById('broadcastDetailBody'),
   broadcastDetailFailedBlock: document.getElementById('broadcastDetailFailedBlock'),
   broadcastDetailFailedList: document.getElementById('broadcastDetailFailedList'),
+  broadcastDetailBouncesBlock: document.getElementById('broadcastDetailBouncesBlock'),
+  broadcastDetailBouncesList: document.getElementById('broadcastDetailBouncesList'),
   broadcastResendFailedBtn: document.getElementById('broadcastResendFailedBtn'),
+
+  // IMAP settings
+  imapHost: document.getElementById('imapHost'),
+  imapPort: document.getElementById('imapPort'),
+  imapUser: document.getElementById('imapUser'),
+  imapPass: document.getElementById('imapPass'),
+  imapSecure: document.getElementById('imapSecure'),
+  imapPollIntervalMinutes: document.getElementById('imapPollIntervalMinutes'),
+  imapInboxFolder: document.getElementById('imapInboxFolder'),
+  imapProcessedFolder: document.getElementById('imapProcessedFolder'),
 };
 
 // ============================================
@@ -520,10 +532,16 @@ function populateSettingsForm() {
     ['admin_email', elements.adminEmail], ['smtp_host', elements.smtpHost],
     ['smtp_port', elements.smtpPort], ['smtp_user', elements.smtpUser],
     ['smtp_secure', elements.smtpSecure], ['smtp_from', elements.smtpFrom],
+    ['imap_host', elements.imapHost], ['imap_port', elements.imapPort],
+    ['imap_user', elements.imapUser], ['imap_secure', elements.imapSecure],
+    ['imap_poll_interval_minutes', elements.imapPollIntervalMinutes],
+    ['imap_inbox_folder', elements.imapInboxFolder],
+    ['imap_processed_folder', elements.imapProcessedFolder],
   ];
   mappings.forEach(([key, el]) => setSettingValue(el, key));
   // Password: show placeholder if set (don't expose actual value)
   if (settings.smtp_pass?.value) elements.smtpPass.placeholder = '(unchanged)';
+  if (settings.imap_pass?.value) elements.imapPass.placeholder = '(unchanged)';
 }
 
 // ============================================
@@ -684,11 +702,21 @@ async function saveSettings(e) {
     smtp_user: elements.smtpUser.value,
     smtp_secure: elements.smtpSecure.value,
     smtp_from: elements.smtpFrom.value,
+    imap_host: elements.imapHost.value,
+    imap_port: elements.imapPort.value,
+    imap_user: elements.imapUser.value,
+    imap_secure: elements.imapSecure.value,
+    imap_poll_interval_minutes: elements.imapPollIntervalMinutes.value,
+    imap_inbox_folder: elements.imapInboxFolder.value,
+    imap_processed_folder: elements.imapProcessedFolder.value,
   };
 
-  // Only update password if a new one was entered
+  // Only update passwords if a new one was entered (blank = keep existing)
   if (elements.smtpPass.value) {
     updates.smtp_pass = elements.smtpPass.value;
+  }
+  if (elements.imapPass.value) {
+    updates.imap_pass = elements.imapPass.value;
   }
 
   try {
@@ -697,6 +725,7 @@ async function saveSettings(e) {
     }
     showToast('Settings saved successfully', 'success');
     elements.smtpPass.value = '';
+    elements.imapPass.value = '';
     loadSettings();
   } catch (error) {
     showToast(error.message, 'error');
@@ -1192,6 +1221,37 @@ async function openBroadcastDetail(id) {
     } else {
       elements.broadcastDetailFailedBlock.style.display = 'none';
       elements.broadcastResendFailedBtn.style.display = 'none';
+    }
+
+    // Bounces — populated asynchronously by the IMAP poller. May be empty
+    // even on a finished broadcast if there was nothing to bounce or the
+    // poller hasn't run yet.
+    const bounces = Array.isArray(b.bounces) ? b.bounces : [];
+    if (bounces.length > 0) {
+      elements.broadcastDetailBouncesBlock.style.display = 'block';
+      elements.broadcastDetailBouncesList.innerHTML = '';
+      bounces.forEach((bc) => {
+        const li = document.createElement('li');
+        const emailSpan = document.createElement('span');
+        emailSpan.className = 'failed-email';
+        emailSpan.textContent = bc.email;
+        const badge = document.createElement('span');
+        const isHard = bc.status === 'bounced_hard';
+        badge.className = 'bounce-badge ' + (isHard ? 'bounce-hard' : 'bounce-soft');
+        badge.textContent = isHard ? 'hard' : 'soft';
+        const reasonSpan = document.createElement('span');
+        reasonSpan.className = 'failed-error';
+        const codePart = bc.code ? `[${bc.code}] ` : '';
+        reasonSpan.textContent = codePart + (bc.reason || 'No diagnostic info');
+        li.appendChild(emailSpan);
+        li.appendChild(document.createTextNode(' '));
+        li.appendChild(badge);
+        li.appendChild(document.createTextNode(' — '));
+        li.appendChild(reasonSpan);
+        elements.broadcastDetailBouncesList.appendChild(li);
+      });
+    } else {
+      elements.broadcastDetailBouncesBlock.style.display = 'none';
     }
 
     openModal(elements.broadcastDetailModal, null);

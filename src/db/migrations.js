@@ -233,6 +233,66 @@ const runMigrations = (rawDb, opts = {}) => {
     applied.push(`${id}: ${desc}`);
   })();
 
+  // ====================================================================
+  // M4: Create emails table (per-message tracking for bounce detection)
+  // ====================================================================
+  (function migration4() {
+    const id = 'M4';
+    const desc = 'Create emails table';
+
+    const exists = rawDb
+      .prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'emails\'')
+      .get();
+
+    if (exists) {
+      skipped.push(`${id}: already applied`);
+      return;
+    }
+
+    log.info(`Applying migration ${id}: ${desc}`);
+
+    rawDb.exec(`
+      CREATE TABLE emails (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tracking_id TEXT NOT NULL UNIQUE,
+        message_id TEXT,
+        user_id INTEGER,
+        recipient_email TEXT NOT NULL,
+        email_type TEXT NOT NULL CHECK(email_type IN (
+          'payment_request',
+          'welcome',
+          'broadcast',
+          'test'
+        )),
+        broadcast_id INTEGER,
+        subject TEXT,
+        sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN (
+          'sent',
+          'rejected_smtp',
+          'bounced_hard',
+          'bounced_soft',
+          'send_failed'
+        )),
+        smtp_response TEXT,
+        smtp_accepted TEXT,
+        smtp_rejected TEXT,
+        bounce_reason TEXT,
+        bounce_code TEXT,
+        bounced_at DATETIME,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (broadcast_id) REFERENCES broadcasts(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_emails_tracking_id ON emails(tracking_id);
+      CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+      CREATE INDEX IF NOT EXISTS idx_emails_broadcast_id ON emails(broadcast_id);
+      CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
+    `);
+
+    applied.push(`${id}: ${desc}`);
+  })();
+
   return { applied, skipped };
 };
 

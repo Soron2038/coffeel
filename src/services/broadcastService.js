@@ -118,6 +118,7 @@ const testSendBroadcast = async (subject, body, adminEmail) => {
     subject: `[TEST] ${rendered.subject}`,
     text: rendered.text,
     html: rendered.html,
+    emailType: 'test',
   });
 
   if (!result.success) {
@@ -131,6 +132,26 @@ const getActiveBroadcast = () =>
   db.get('SELECT * FROM broadcasts WHERE status = \'sending\' LIMIT 1');
 
 const getBroadcast = (id) => formatBroadcast(db.get('SELECT * FROM broadcasts WHERE id = ?', [id]));
+
+/**
+ * Bounces for a given broadcast, ordered newest first. Empty array if the
+ * emails table is missing (older DB before M4) or no bounces yet.
+ */
+const getBroadcastBounces = (broadcastId) => {
+  try {
+    return db.all(
+      `SELECT recipient_email AS email, status, bounce_code AS code,
+              bounce_reason AS reason, bounced_at AS bouncedAt
+         FROM emails
+        WHERE broadcast_id = ? AND status IN ('bounced_hard', 'bounced_soft')
+        ORDER BY bounced_at DESC`,
+      [broadcastId]
+    );
+  } catch (err) {
+    logger.warn('Failed to load broadcast bounces', { broadcastId, error: err.message });
+    return [];
+  }
+};
 
 const listBroadcasts = ({ limit = 20, offset = 0 } = {}) => {
   const rows = db.all(
@@ -184,6 +205,9 @@ const runSenderLoop = async (broadcastId, subject, body, recipients) => {
           subject: rendered.subject,
           text: rendered.text,
           html: rendered.html,
+          userId: user.id,
+          emailType: 'broadcast',
+          broadcastId,
         });
         if (result.success) {
           sentCount++;
@@ -362,6 +386,7 @@ module.exports = {
   startBroadcast,
   resendFailed,
   getBroadcast,
+  getBroadcastBounces,
   listBroadcasts,
   getActiveBroadcast,
   getActiveRecipients,

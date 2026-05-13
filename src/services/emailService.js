@@ -1,8 +1,10 @@
+const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const db = require('../db/database');
 const logger = require('../utils/logger');
 const settingsService = require('./settingsService');
 
-// Create reusable transporter
+// Reusable transporter, lazily created and rebuilt when SMTP config changes.
 let transporter = null;
 let lastSmtpConfig = null;
 
@@ -28,8 +30,7 @@ const getSmtpConfig = () => {
 const getTransporter = () => {
   const config = getSmtpConfig();
   const configKey = JSON.stringify({ host: config.host, port: config.port, user: config.user });
-  
-  // Recreate transporter if config changed
+
   if (!transporter || lastSmtpConfig !== configKey) {
     if (transporter) {
       transporter.close();
@@ -46,6 +47,106 @@ const getTransporter = () => {
     lastSmtpConfig = configKey;
   }
   return transporter;
+};
+
+const TRACKING_HEADER = 'X-Coffee-Email-Id';
+
+/**
+ * Insert an `emails` row before send, send via SMTP with the tracking header,
+ * then update the row with the SMTP outcome. Returns the same shape as the
+ * legacy callers expect: { success, messageId } | { success: false, error }.
+ *
+ * @param {Object} opts
+ * @param {string} opts.to               — recipient address
+ * @param {string} opts.subject
+ * @param {string} opts.text
+ * @param {string} opts.html
+ * @param {string} [opts.cc]
+ * @param {string} [opts.replyTo]
+ * @param {number|null} [opts.userId]    — null for test/preview mails
+ * @param {string} opts.emailType        — 'payment_request' | 'welcome' | 'broadcast' | 'test'
+ * @param {number|null} [opts.broadcastId]
+ */
+const sendAndLog = async (opts) => {
+  const smtpConfig = getSmtpConfig();
+  if (!smtpConfig.host) {
+    return { success: false, error: 'SMTP host not configured' };
+  }
+
+  const trackingId = crypto.randomUUID();
+
+  // Best-effort log row. If this fails we still try to send — losing tracking
+  // is preferable to losing the user-visible email.
+  try {
+    db.run(
+      `INSERT INTO emails
+         (tracking_id, user_id, recipient_email, email_type, broadcast_id, subject, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'sent')`,
+      [
+        trackingId,
+        opts.userId ?? null,
+        opts.to,
+        opts.emailType,
+        opts.broadcastId ?? null,
+        opts.subject ?? null,
+      ]
+    );
+  } catch (err) {
+    logger.warn('Failed to log outgoing email pre-send', { error: err.message, to: opts.to });
+  }
+
+  const mailOptions = {
+    from: smtpConfig.from,
+    to: opts.to,
+    subject: opts.subject,
+    text: opts.text,
+    html: opts.html,
+    headers: { [TRACKING_HEADER]: trackingId },
+  };
+  if (opts.cc) mailOptions.cc = opts.cc;
+  if (opts.replyTo) mailOptions.replyTo = opts.replyTo;
+
+  try {
+    const info = await getTransporter().sendMail(mailOptions);
+
+    const rejectedJson = info.rejected && info.rejected.length > 0
+      ? JSON.stringify(info.rejected)
+      : null;
+    const acceptedJson = info.accepted && info.accepted.length > 0
+      ? JSON.stringify(info.accepted)
+      : null;
+    const status = rejectedJson ? 'rejected_smtp' : 'sent';
+
+    try {
+      db.run(
+        `UPDATE emails
+            SET status = ?,
+                message_id = ?,
+                smtp_response = ?,
+                smtp_accepted = ?,
+                smtp_rejected = ?
+          WHERE tracking_id = ?`,
+        [status, info.messageId || null, info.response || null, acceptedJson, rejectedJson, trackingId]
+      );
+    } catch (err) {
+      logger.warn('Failed to update email log post-send', { error: err.message, trackingId });
+    }
+
+    if (status === 'rejected_smtp') {
+      return { success: false, error: `SMTP rejected recipient(s): ${rejectedJson}`, trackingId };
+    }
+    return { success: true, messageId: info.messageId, trackingId };
+  } catch (err) {
+    try {
+      db.run(
+        'UPDATE emails SET status = \'send_failed\', smtp_response = ? WHERE tracking_id = ?',
+        [err.message, trackingId]
+      );
+    } catch (innerErr) {
+      logger.warn('Failed to update email log after send error', { error: innerErr.message, trackingId });
+    }
+    return { success: false, error: err.message, trackingId };
+  }
 };
 
 /**
@@ -68,39 +169,32 @@ const sendPaymentRequest = async (user, coffeeCount, amount) => {
     bankDetails
   );
 
-  try {
-    const transport = getTransporter();
-    const smtpConfig = getSmtpConfig();
-    
-    const mailOptions = {
-      from: smtpConfig.from,
-      to: user.email,
-      cc: adminEmail,
-      subject: `Coffee Payment Request - ${coffeeCount} coffees`,
-      text: emailContent.text,
-      html: emailContent.html,
-    };
+  const subject = `Coffee Payment Request - ${coffeeCount} coffees`;
+  const result = await sendAndLog({
+    to: user.email,
+    cc: adminEmail,
+    subject,
+    text: emailContent.text,
+    html: emailContent.html,
+    userId: user.id,
+    emailType: 'payment_request',
+  });
 
-    const info = await transport.sendMail(mailOptions);
-    
+  if (result.success) {
     logger.info('Payment request email sent', {
       userId: user.id,
       email: user.email,
       amount,
-      messageId: info.messageId,
+      messageId: result.messageId,
     });
-
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
+  } else {
     logger.error('Failed to send payment request email', {
-      error: err.message,
+      error: result.error,
       userId: user.id,
       email: user.email,
     });
-
-    // Return error but don't throw - payment tracking should continue
-    return { success: false, error: err.message };
   }
+  return result;
 };
 
 /**
@@ -114,7 +208,7 @@ const sendPaymentRequest = async (user, coffeeCount, amount) => {
  */
 const generatePaymentRequestEmail = (user, coffeeCount, amount, coffeePrice, bankDetails) => {
   const paymentReference = `Coffee - ${user.firstName} ${user.lastName}`;
-  
+
   const text = `
 Hello ${user.firstName},
 
@@ -167,7 +261,7 @@ This is an automated message.
     <div class="content">
       <p>Hello ${user.firstName},</p>
       <p>This is a payment request for your coffee consumption.</p>
-      
+
       <div class="summary">
         <h3 style="margin-top: 0;">Coffee Summary</h3>
         <table>
@@ -185,7 +279,7 @@ This is an automated message.
           </tr>
         </table>
       </div>
-      
+
       <div class="bank-details">
         <h3 style="margin-top: 0;">Payment Details</h3>
         <table>
@@ -207,7 +301,7 @@ This is an automated message.
           </tr>
         </table>
       </div>
-      
+
       <p>Please transfer the amount to the account above.</p>
       <p>Thank you for your payment!</p>
     </div>
@@ -238,38 +332,32 @@ const sendPaymentRequestByAmount = async (user, amount) => {
     bankDetails
   );
 
-  try {
-    const transport = getTransporter();
-    const smtpConfig = getSmtpConfig();
-    
-    const mailOptions = {
-      from: smtpConfig.from,
-      to: user.email,
-      cc: adminEmail,
-      subject: `Coffee Payment Request - €${amount.toFixed(2)}`,
-      text: emailContent.text,
-      html: emailContent.html,
-    };
+  const subject = `Coffee Payment Request - €${amount.toFixed(2)}`;
+  const result = await sendAndLog({
+    to: user.email,
+    cc: adminEmail,
+    subject,
+    text: emailContent.text,
+    html: emailContent.html,
+    userId: user.id,
+    emailType: 'payment_request',
+  });
 
-    const info = await transport.sendMail(mailOptions);
-    
+  if (result.success) {
     logger.info('Payment request email sent', {
       userId: user.id,
       email: user.email,
       amount,
-      messageId: info.messageId,
+      messageId: result.messageId,
     });
-
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
+  } else {
     logger.error('Failed to send payment request email', {
-      error: err.message,
+      error: result.error,
       userId: user.id,
       email: user.email,
     });
-
-    return { success: false, error: err.message };
   }
+  return result;
 };
 
 /**
@@ -277,7 +365,7 @@ const sendPaymentRequestByAmount = async (user, amount) => {
  */
 const generatePaymentRequestEmailByAmount = (user, amount, bankDetails) => {
   const paymentReference = `Coffee - ${user.firstName} ${user.lastName}`;
-  
+
   const text = `
 Hello ${user.firstName},
 
@@ -328,12 +416,12 @@ This is an automated message.
     <div class="content">
       <p>Hello ${user.firstName},</p>
       <p>This is a payment request for your coffee consumption.</p>
-      
+
       <div class="summary">
         <h3 style="margin-top: 0;">Amount Due</h3>
         <p class="amount">€${amount.toFixed(2)}</p>
       </div>
-      
+
       <div class="bank-details">
         <h3 style="margin-top: 0;">Payment Details</h3>
         <table>
@@ -355,7 +443,7 @@ This is an automated message.
           </tr>
         </table>
       </div>
-      
+
       <p>Please transfer the amount to the account above.</p>
       <p>Thank you for your payment!</p>
     </div>
@@ -382,46 +470,35 @@ const sendWelcomeEmail = async (user, isReactivation = false) => {
 
   const emailContent = generateWelcomeEmail(user, coffeePrice, isReactivation);
 
-  try {
-    const transport = getTransporter();
-    const smtpConfig = getSmtpConfig();
-    
-    if (!smtpConfig.host) {
-      return { success: false, error: 'SMTP host not configured' };
-    }
+  const subject = isReactivation
+    ? `Welcome back to CofFeEL, ${user.firstName}!`
+    : `Welcome to CofFeEL, ${user.firstName}!`;
 
-    const subject = isReactivation 
-      ? `Welcome back to CofFeEL, ${user.firstName}!`
-      : `Welcome to CofFeEL, ${user.firstName}!`;
+  const result = await sendAndLog({
+    to: user.email,
+    cc: adminEmail,
+    subject,
+    text: emailContent.text,
+    html: emailContent.html,
+    userId: user.id,
+    emailType: 'welcome',
+  });
 
-    const mailOptions = {
-      from: smtpConfig.from,
-      to: user.email,
-      cc: adminEmail,
-      subject,
-      text: emailContent.text,
-      html: emailContent.html,
-    };
-
-    const info = await transport.sendMail(mailOptions);
-    
+  if (result.success) {
     logger.info('Welcome email sent', {
       userId: user.id,
       email: user.email,
       isReactivation,
-      messageId: info.messageId,
+      messageId: result.messageId,
     });
-
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
+  } else {
     logger.error('Failed to send welcome email', {
-      error: err.message,
+      error: result.error,
       userId: user.id,
       email: user.email,
     });
-
-    return { success: false, error: err.message };
   }
+  return result;
 };
 
 /**
@@ -480,7 +557,7 @@ This is an automated message.
     <div class="content">
       <p>Hello ${user.firstName},</p>
       <p>${intro}</p>
-      
+
       <div class="info-box">
         <h3 style="margin-top: 0;">How It Works</h3>
         <ol>
@@ -490,13 +567,13 @@ This is an automated message.
           <li>Transfer the amount to our bank account</li>
         </ol>
       </div>
-      
+
       <div class="price-box">
         <p style="margin: 0; color: #7a5f45;">Current Coffee Price</p>
         <p class="price" style="margin: 5px 0;">€${coffeePrice.toFixed(2)}</p>
         <p style="margin: 0; color: #7a5f45; font-size: 14px;">per cup</p>
       </div>
-      
+
       <p>Enjoy your coffee! ☕</p>
     </div>
     <div class="footer">
@@ -538,43 +615,33 @@ const resetTransporter = () => {
 };
 
 /**
- * Generic SMTP send. Returns { success, messageId } or { success: false, error }.
- * Used by broadcast and any other caller that needs raw email sending without
- * domain-specific templating.
+ * Generic SMTP send used by broadcasts and any other caller that needs raw
+ * email sending without domain-specific templating. Defaults emailType to
+ * 'broadcast' since that's the only caller today.
  *
  * @param {Object} opts
- * @param {string} opts.to - Recipient email
- * @param {string} opts.subject - Subject line
- * @param {string} opts.text - Plain-text body
- * @param {string} opts.html - HTML body
- * @param {string} [opts.replyTo] - Optional Reply-To header
- * @param {string} [opts.cc] - Optional CC address
+ * @param {string} opts.to
+ * @param {string} opts.subject
+ * @param {string} opts.text
+ * @param {string} opts.html
+ * @param {string} [opts.replyTo]
+ * @param {string} [opts.cc]
+ * @param {number|null} [opts.userId]
+ * @param {string} [opts.emailType='broadcast']
+ * @param {number|null} [opts.broadcastId]
  */
-const sendMail = async ({ to, subject, text, html, replyTo, cc }) => {
-  try {
-    const transport = getTransporter();
-    const smtpConfig = getSmtpConfig();
-
-    if (!smtpConfig.host) {
-      return { success: false, error: 'SMTP host not configured' };
-    }
-
-    const mailOptions = {
-      from: smtpConfig.from,
-      to,
-      subject,
-      text,
-      html,
-    };
-    if (replyTo) mailOptions.replyTo = replyTo;
-    if (cc) mailOptions.cc = cc;
-
-    const info = await transport.sendMail(mailOptions);
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-};
+const sendMail = async ({ to, subject, text, html, replyTo, cc, userId, emailType = 'broadcast', broadcastId }) =>
+  sendAndLog({
+    to,
+    subject,
+    text,
+    html,
+    replyTo,
+    cc,
+    userId,
+    emailType,
+    broadcastId,
+  });
 
 /**
  * Send a test email to verify SMTP configuration
@@ -582,38 +649,29 @@ const sendMail = async ({ to, subject, text, html, replyTo, cc }) => {
  * @returns {Object} Result with success status
  */
 const sendTestEmail = async (toEmail) => {
-  try {
-    const transport = getTransporter();
-    const smtpConfig = getSmtpConfig();
-    
-    if (!smtpConfig.host) {
-      return { success: false, error: 'SMTP host not configured' };
-    }
+  const result = await sendAndLog({
+    to: toEmail,
+    subject: 'CofFeEL SMTP Test',
+    text: 'This is a test email from CofFeEL to verify your SMTP configuration is working correctly.',
+    html: `
+      <div style="font-family: sans-serif; padding: 20px;">
+        <h2>☕ CofFeEL SMTP Test</h2>
+        <p>This is a test email to verify your SMTP configuration is working correctly.</p>
+        <p style="color: #10b981;">✅ If you received this email, your SMTP settings are correct!</p>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+        <p style="color: #6b7280; font-size: 12px;">Sent at: ${new Date().toISOString()}</p>
+      </div>
+    `,
+    userId: null,
+    emailType: 'test',
+  });
 
-    const mailOptions = {
-      from: smtpConfig.from,
-      to: toEmail,
-      subject: 'CofFeEL SMTP Test',
-      text: 'This is a test email from CofFeEL to verify your SMTP configuration is working correctly.',
-      html: `
-        <div style="font-family: sans-serif; padding: 20px;">
-          <h2>☕ CofFeEL SMTP Test</h2>
-          <p>This is a test email to verify your SMTP configuration is working correctly.</p>
-          <p style="color: #10b981;">✅ If you received this email, your SMTP settings are correct!</p>
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-          <p style="color: #6b7280; font-size: 12px;">Sent at: ${new Date().toISOString()}</p>
-        </div>
-      `,
-    };
-
-    const info = await transport.sendMail(mailOptions);
-    
-    logger.info('Test email sent', { to: toEmail, messageId: info.messageId });
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
-    logger.error('Test email failed', { error: err.message, to: toEmail });
-    return { success: false, error: err.message };
+  if (result.success) {
+    logger.info('Test email sent', { to: toEmail, messageId: result.messageId });
+  } else {
+    logger.error('Test email failed', { error: result.error, to: toEmail });
   }
+  return result;
 };
 
 module.exports = {
@@ -624,4 +682,8 @@ module.exports = {
   resetTransporter,
   sendTestEmail,
   sendMail,
+
+  // Exported for tests
+  sendAndLog,
+  TRACKING_HEADER,
 };

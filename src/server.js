@@ -44,6 +44,10 @@ try {
   // Recover any broadcasts that were in flight when the server last shut down.
   const broadcastService = require('./services/broadcastService');
   broadcastService.recoverInterruptedBroadcasts();
+
+  // Start the IMAP bounce processor. No-op when imap_host is unset.
+  const bounceProcessor = require('./services/bounceProcessor');
+  bounceProcessor.start();
 } catch (err) {
   logger.error('Failed to initialize database', { error: err.message });
   process.exit(1);
@@ -169,7 +173,13 @@ const server = app.listen(PORT, HOST, () => {
 // Graceful shutdown
 const shutdown = (signal) => {
   logger.info(`Received ${signal}, shutting down gracefully...`);
-  
+
+  try {
+    require('./services/bounceProcessor').stop();
+  } catch (err) {
+    logger.warn('Bounce processor stop failed', { error: err.message });
+  }
+
   server.close(() => {
     logger.info('HTTP server closed');
     db.close();

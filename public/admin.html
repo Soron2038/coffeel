@@ -296,6 +296,54 @@
             </div>
           </div>
 
+          <div class="settings-group">
+            <h3>IMAP Bounce Detection</h3>
+            <p class="settings-hint">When configured, CofFeEL polls this mailbox for bounce notifications (DSNs) and tags failed deliveries in the email log. Leave the host blank to disable.</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="imapHost">IMAP Host</label>
+                <input type="text" id="imapHost" name="imap_host" placeholder="imap.example.com (blank to disable)">
+              </div>
+              <div class="form-group">
+                <label for="imapPort">IMAP Port</label>
+                <input type="number" id="imapPort" name="imap_port" placeholder="993" min="1" max="65535">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="imapUser">IMAP Username</label>
+                <input type="text" id="imapUser" name="imap_user" placeholder="(blank → reuse SMTP user)">
+              </div>
+              <div class="form-group">
+                <label for="imapPass">IMAP Password</label>
+                <input type="password" id="imapPass" name="imap_pass" placeholder="(blank → reuse SMTP password)">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="imapSecure">Use TLS/SSL</label>
+                <select id="imapSecure" name="imap_secure">
+                  <option value="true">Yes (SSL/TLS)</option>
+                  <option value="false">No (STARTTLS)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="imapPollIntervalMinutes">Poll Interval (min)</label>
+                <input type="number" id="imapPollIntervalMinutes" name="imap_poll_interval_minutes" placeholder="5" min="1" max="1440">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="imapInboxFolder">Inbox Folder</label>
+                <input type="text" id="imapInboxFolder" name="imap_inbox_folder" placeholder="INBOX">
+              </div>
+              <div class="form-group">
+                <label for="imapProcessedFolder">Processed Folder</label>
+                <input type="text" id="imapProcessedFolder" name="imap_processed_folder" placeholder="Processed-Bounces">
+              </div>
+            </div>
+          </div>
+
           <div class="form-actions">
             <button type="submit" class="btn btn-primary">Save Settings</button>
             <button type="button" class="btn btn-secondary" id="testSmtpBtn">Test SMTP</button>
@@ -537,8 +585,12 @@
           <h4>Body</h4>
           <pre id="broadcastDetailBody" class="preview-text"></pre>
           <div id="broadcastDetailFailedBlock" style="display: none;">
-            <h4>Failed recipients</h4>
+            <h4>Failed recipients <span class="hint">(rejected before SMTP handoff)</span></h4>
             <ul id="broadcastDetailFailedList" class="failed-list"></ul>
+          </div>
+          <div id="broadcastDetailBouncesBlock" style="display: none;">
+            <h4>Bounces <span class="hint">(undelivered after SMTP handoff)</span></h4>
+            <ul id="broadcastDetailBouncesList" class="failed-list"></ul>
           </div>
         </div>
         <div class="modal-actions">

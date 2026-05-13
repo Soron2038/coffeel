@@ -126,3 +126,43 @@ CREATE TABLE IF NOT EXISTS broadcasts (
 CREATE INDEX IF NOT EXISTS idx_broadcasts_status ON broadcasts(status);
 CREATE INDEX IF NOT EXISTS idx_broadcasts_created ON broadcasts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_broadcasts_origin ON broadcasts(origin_broadcast_id);
+
+-- Emails table: per-message tracking for every outgoing mail.
+-- tracking_id is sent as the X-Coffee-Email-Id header so DSN bounces
+-- can be matched back to the originating record.
+CREATE TABLE IF NOT EXISTS emails (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tracking_id TEXT NOT NULL UNIQUE,
+  message_id TEXT,
+  user_id INTEGER,
+  recipient_email TEXT NOT NULL,
+  email_type TEXT NOT NULL CHECK(email_type IN (
+    'payment_request',
+    'welcome',
+    'broadcast',
+    'test'
+  )),
+  broadcast_id INTEGER,
+  subject TEXT,
+  sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN (
+    'sent',
+    'rejected_smtp',
+    'bounced_hard',
+    'bounced_soft',
+    'send_failed'
+  )),
+  smtp_response TEXT,
+  smtp_accepted TEXT,                                      -- JSON array
+  smtp_rejected TEXT,                                      -- JSON array
+  bounce_reason TEXT,                                      -- DSN Diagnostic-Code text
+  bounce_code TEXT,                                        -- DSN status code e.g. '5.1.1'
+  bounced_at DATETIME,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (broadcast_id) REFERENCES broadcasts(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_emails_tracking_id ON emails(tracking_id);
+CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+CREATE INDEX IF NOT EXISTS idx_emails_broadcast_id ON emails(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
