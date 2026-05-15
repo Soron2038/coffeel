@@ -166,3 +166,13 @@ CREATE INDEX IF NOT EXISTS idx_emails_tracking_id ON emails(tracking_id);
 CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
 CREATE INDEX IF NOT EXISTS idx_emails_broadcast_id ON emails(broadcast_id);
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
+
+-- Sessions table: SQLite-backed express-session store.
+-- expires_at is a unix timestamp (ms); the store prunes rows past expiry.
+CREATE TABLE IF NOT EXISTS sessions (
+  sid TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL,
+  data TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
