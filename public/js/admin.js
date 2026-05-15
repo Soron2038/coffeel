@@ -85,6 +85,8 @@ const elements = {
   newCoffeeCount: document.getElementById('newCoffeeCount'),
   cancelAdjust: document.getElementById('cancelAdjust'),
   submitAdjust: document.getElementById('submitAdjust'),
+  userEmailLogBlock: document.getElementById('userEmailLogBlock'),
+  userEmailLogBody: document.getElementById('userEmailLogBody'),
 
   // Generic Confirm Modal
   confirmModal: document.getElementById('confirmModal'),
@@ -207,6 +209,10 @@ const api = {
 
   deleteUserPermanent(userId) {
     return this.request(`/users/${userId}/permanent`, { method: 'DELETE' });
+  },
+
+  getUserEmails(userId) {
+    return this.request(`/users/${userId}/emails?limit=20`);
   },
 
   updateUser(userId, updates) {
@@ -441,7 +447,10 @@ function updateSummary() {
 
 // Render user row (shared between active/deleted tables)
 function renderUserRow(user, isDeleted) {
-  const name = `<strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong>`;
+  const bounceBadge = (user.recentBounceCount || 0) > 0
+    ? ` <span class="user-bounce-badge" title="${user.recentBounceCount} recent bounce${user.recentBounceCount === 1 ? '' : 's'} — click row for details">✉ bounce</span>`
+    : '';
+  const name = `<strong>${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</strong>${bounceBadge}`;
   const currentTab = user.currentTab || 0;
   const pendingPayment = user.pendingPayment || 0;
   const pendingClass = pendingPayment > 0 ? 'pending-amount' : '';
@@ -628,8 +637,55 @@ function openAdjustModal(userId) {
   elements.adjustLastName.value = user.lastName;
   elements.adjustEmail.value = user.email;
   elements.newCoffeeCount.value = currentTab.toFixed(2);
-  
+
+  // Reset and lazy-load the email log every time the modal opens. The
+  // <details> stays closed by default so the modal isn't dominated by a
+  // long list for users with lots of mail traffic.
+  elements.userEmailLogBlock.open = (user.recentBounceCount || 0) > 0;
+  elements.userEmailLogBody.innerHTML = '<p class="settings-hint">Loading…</p>';
+  loadUserEmailLog(user.id);
+
   openModal(elements.adjustCoffeeModal, elements.adjustFirstName);
+}
+
+async function loadUserEmailLog(userId) {
+  try {
+    const emails = await api.getUserEmails(userId);
+    renderUserEmailLog(emails);
+  } catch (err) {
+    elements.userEmailLogBody.innerHTML =
+      `<p class="settings-hint">Failed to load: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderUserEmailLog(emails) {
+  if (!emails || emails.length === 0) {
+    elements.userEmailLogBody.innerHTML =
+      '<p class="settings-hint">No emails on record for this user yet.</p>';
+    return;
+  }
+
+  const rows = emails.map((e) => {
+    const statusClass = (
+      e.status === 'bounced_hard' || e.status === 'send_failed' || e.status === 'rejected_smtp'
+    ) ? 'email-status-bad'
+      : e.status === 'bounced_soft' ? 'email-status-warn'
+      : 'email-status-ok';
+    const reason = e.bounceReason || e.smtpResponse || '';
+    const reasonShort = reason.length > 120 ? reason.slice(0, 117) + '…' : reason;
+    return `<tr>
+      <td>${formatDate(e.sentAt)}</td>
+      <td>${escapeHtml(e.emailType)}</td>
+      <td><span class="email-status ${statusClass}">${escapeHtml(e.status)}</span></td>
+      <td title="${escapeHtml(reason)}">${escapeHtml(reasonShort)}</td>
+    </tr>`;
+  });
+
+  elements.userEmailLogBody.innerHTML =
+    `<table class="email-log-table">
+      <thead><tr><th>Sent</th><th>Type</th><th>Status</th><th>Reason / SMTP response</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
 }
 
 function closeAdjustModal() { closeModal(elements.adjustCoffeeModal); }
@@ -1201,11 +1257,15 @@ function renderBroadcasts() {
   elements.broadcastsBody.innerHTML = broadcasts.map((b) => {
     const subjectShort = b.subject.length > 60 ? b.subject.slice(0, 57) + '…' : b.subject;
     const statusClass = `status-${b.status}`;
+    const bouncedCell = b.bouncedCount > 0
+      ? `<span class="bounce-count">${b.bouncedCount}</span>`
+      : '0';
     return `<tr class="broadcast-row" data-broadcast-id="${b.id}">
       <td>${formatDate(b.createdAt)}</td>
       <td><strong>${escapeHtml(subjectShort)}</strong></td>
       <td>${b.sentCount} / ${b.totalCount}</td>
       <td>${b.failedCount > 0 ? `<span class="failed-count">${b.failedCount}</span>` : '0'}</td>
+      <td>${bouncedCell}</td>
       <td><span class="status-badge ${statusClass}">${escapeHtml(b.status)}</span></td>
     </tr>`;
   }).join('');

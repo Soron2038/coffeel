@@ -30,6 +30,15 @@ router.get('/users/:id', validateIdParam, asyncHandler(async (req, res) => {
   res.json(user);
 }));
 
+// GET /api/users/:id/emails - Recent outbound email log for one user (admin).
+// Surfaces bounce/send-failure status for welcome and payment-request mails
+// that aren't visible elsewhere.
+router.get('/users/:id/emails', requireAdmin, validateIdParam, asyncHandler(async (req, res) => {
+  const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit, 10) || 20) : 20;
+  const emails = userService.getUserEmails(req.userId, limit);
+  res.json(emails);
+}));
+
 // POST /api/users - Create new user (or reactivate soft-deleted)
 router.post('/users', asyncHandler(async (req, res) => {
   const { firstName, lastName, email } = req.body;

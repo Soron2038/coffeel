@@ -26,31 +26,79 @@ const getPaymentService = () => {
  * @returns {Array} Array of user objects
  */
 const getAllUsers = (includeDeleted = false) => {
+  // Subquery on emails surfaces recent hard/soft bounces so the user list
+  // can show a "this address bounced" badge. 30d window is long enough to
+  // catch operational issues but short enough that a long-fixed bounce
+  // from years ago doesn't permanently flag the user.
   let sql = `
-    SELECT 
-      id,
-      first_name,
-      last_name,
-      email,
-      current_tab,
-      pending_payment,
-      account_balance,
-      last_payment_request,
-      deleted_by_user,
-      deleted_at,
-      created_at,
-      updated_at
-    FROM users
+    SELECT
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.current_tab,
+      u.pending_payment,
+      u.account_balance,
+      u.last_payment_request,
+      u.deleted_by_user,
+      u.deleted_at,
+      u.created_at,
+      u.updated_at,
+      (
+        SELECT COUNT(*) FROM emails e
+         WHERE e.user_id = u.id
+           AND e.status IN ('bounced_hard', 'bounced_soft')
+           AND e.bounced_at > datetime('now', '-30 days')
+      ) AS recent_bounce_count
+    FROM users u
   `;
 
   if (!includeDeleted) {
-    sql += ' WHERE deleted_by_user = 0';
+    sql += ' WHERE u.deleted_by_user = 0';
   }
 
-  sql += ' ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE';
+  sql += ' ORDER BY u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE';
 
   const users = db.all(sql);
   return users.map(formatUser);
+};
+
+/**
+ * Email log for a single user — most recent first. Used by the user-edit
+ * modal to surface bounce/send-failure status that isn't visible elsewhere.
+ *
+ * @param {number} userId
+ * @param {number} [limit=20]
+ * @returns {Array}
+ */
+const getUserEmails = (userId, limit = 20) => {
+  try {
+    const rows = db.all(
+      `SELECT id, email_type, broadcast_id, subject, status,
+              smtp_response, bounce_code, bounce_reason,
+              sent_at, bounced_at
+         FROM emails
+        WHERE user_id = ?
+        ORDER BY sent_at DESC
+        LIMIT ?`,
+      [userId, Math.min(Math.max(limit, 1), 200)]
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      emailType: r.email_type,
+      broadcastId: r.broadcast_id,
+      subject: r.subject,
+      status: r.status,
+      smtpResponse: r.smtp_response,
+      bounceCode: r.bounce_code,
+      bounceReason: r.bounce_reason,
+      sentAt: r.sent_at,
+      bouncedAt: r.bounced_at,
+    }));
+  } catch (err) {
+    // emails table missing on very old DBs that never booted post-M4
+    return [];
+  }
 };
 
 /**
@@ -581,6 +629,9 @@ const formatUser = (row) => ({
   deletedAt: row.deleted_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  // Only present when fetched via getAllUsers (joined subquery); single-row
+  // getters don't compute this to keep cost predictable.
+  recentBounceCount: row.recent_bounce_count ?? 0,
 });
 
 // Helper function to log audit entries
@@ -600,6 +651,7 @@ module.exports = {
   getAllUsers,
   getUserById,
   getUserByEmail,
+  getUserEmails,
   createUser,
   updateUser,
   softDeleteUser,

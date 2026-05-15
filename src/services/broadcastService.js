@@ -90,6 +90,9 @@ const formatBroadcast = (row) => {
     createdAt: row.created_at,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
+    // Only set when listBroadcasts runs the bounce subquery. Single-row
+    // getBroadcast() callers get the live count via getBroadcastBounces.
+    bouncedCount: row.bounced_count ?? null,
   };
 };
 
@@ -154,8 +157,19 @@ const getBroadcastBounces = (broadcastId) => {
 };
 
 const listBroadcasts = ({ limit = 20, offset = 0 } = {}) => {
+  // Subquery surfaces async-bounce count next to sent/failed in the history
+  // table, so the operator sees that "100% sent" isn't the same as "100%
+  // delivered" once the IMAP poller has caught up.
   const rows = db.all(
-    'SELECT * FROM broadcasts ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    `SELECT b.*,
+            (
+              SELECT COUNT(*) FROM emails e
+               WHERE e.broadcast_id = b.id
+                 AND e.status IN ('bounced_hard', 'bounced_soft')
+            ) AS bounced_count
+       FROM broadcasts b
+      ORDER BY b.created_at DESC
+      LIMIT ? OFFSET ?`,
     [Math.min(limit, 200), Math.max(offset, 0)]
   );
   return rows.map(formatBroadcast);

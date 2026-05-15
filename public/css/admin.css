@@ -1124,3 +1124,86 @@ body::before {
   font-size: 11px;
   font-weight: 500;
 }
+
+.user-bounce-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.bounce-count {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.user-email-log {
+  margin-top: 16px;
+  border-top: 1px solid var(--color-gray-200);
+  padding-top: 12px;
+}
+
+.user-email-log > summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--color-gray-700);
+  padding: 4px 0;
+}
+
+.user-email-log-body {
+  margin-top: 8px;
+}
+
+.email-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.email-log-table th,
+.email-log-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-gray-100);
+  vertical-align: top;
+}
+
+.email-log-table th {
+  background: var(--color-gray-50);
+  color: var(--color-gray-700);
+  font-weight: 500;
+}
+
+.email-log-table td {
+  color: var(--color-gray-800);
+  word-break: break-word;
+}
+
+.email-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: lowercase;
+}
+
+.email-status-ok {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.email-status-warn {
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.email-status-bad {
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+}
