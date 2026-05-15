@@ -433,11 +433,114 @@ const testConnection = async () => {
   }
 };
 
+/**
+ * Diagnostic helper for the admin UI. Reads the first few unseen messages
+ * read-only and reports the classification-relevant fields for each.
+ *
+ * Use this when "Run Bounce Check Now" returns processed > 0 but matched +
+ * unmatched == 0 — meaning a message is there but classifyAsBounce isn't
+ * recognizing it. The output lets the operator (or us, later) see exactly
+ * which headers the provider chose for its DSN-like reply.
+ *
+ * Read-only: no flag changes, no folder moves.
+ *
+ * @param {number} [limit=5] - Max number of messages to inspect.
+ */
+const inspectUnread = async (limit = 5) => {
+  const config = getImapConfig();
+  if (!config) {
+    return { success: false, error: 'IMAP host not configured' };
+  }
+
+  loadDeps();
+
+  const client = new ImapFlow({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+    logger: false,
+  });
+
+  const inspected = [];
+
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(config.inboxFolder, { readonly: true });
+
+    try {
+      let collected = 0;
+      for await (const msg of client.fetch({ seen: false }, { source: true, envelope: true, uid: true })) {
+        if (collected >= limit) break;
+        collected++;
+
+        let parsed;
+        try {
+          parsed = await simpleParser(msg.source);
+        } catch (err) {
+          inspected.push({ uid: msg.uid, parseError: err.message });
+          continue;
+        }
+
+        const contentTypeHeader = parsed.headers?.get('content-type');
+        const contentType = typeof contentTypeHeader === 'string'
+          ? contentTypeHeader
+          : (contentTypeHeader?.value || '');
+
+        const returnPathHeader = parsed.headers?.get('return-path');
+        const returnPath = typeof returnPathHeader === 'string'
+          ? returnPathHeader
+          : (returnPathHeader?.text || returnPathHeader?.value || '');
+
+        const autoSubmitted = parsed.headers?.get('auto-submitted') || '';
+
+        const classification = classifyAsBounce(parsed);
+        const trackingId = extractTrackingId(parsed);
+        const dsn = extractDsnInfo(parsed);
+
+        const attachmentTypes = (parsed.attachments || [])
+          .map((a) => a.contentType)
+          .filter(Boolean);
+
+        const body = parsed.text || '';
+        const bodySnippet = body.length > 500 ? body.slice(0, 500) + '…' : body;
+
+        inspected.push({
+          uid: msg.uid,
+          subject: parsed.subject || '(no subject)',
+          from: parsed.from?.text || '(no from)',
+          contentType,
+          returnPath,
+          autoSubmitted: typeof autoSubmitted === 'string' ? autoSubmitted : (autoSubmitted?.value || ''),
+          classifiedAsBounce: classification.isBounce,
+          classificationKind: classification.kind || null,
+          trackingIdFound: trackingId,
+          dsnCode: dsn.code,
+          dsnReason: dsn.reason,
+          attachmentContentTypes: attachmentTypes,
+          bodySnippet,
+        });
+      }
+    } finally {
+      lock.release();
+    }
+
+    return { success: true, count: inspected.length, messages: inspected };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    try {
+      await client.logout();
+    } catch (_err) { /* ignore */ }
+  }
+};
+
 module.exports = {
   start,
   stop,
   processOnce,
   testConnection,
+  inspectUnread,
 
   // Exported for tests
   classifyAsBounce,

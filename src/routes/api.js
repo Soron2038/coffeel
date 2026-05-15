@@ -264,6 +264,15 @@ router.post('/settings/run-bounce-check', requireAdmin, asyncHandler(async (req,
   res.json(result);
 }));
 
+// POST /api/settings/inspect-bounces - Read-only deep inspection of the first
+// unseen messages in the IMAP inbox. Used to diagnose why classifyAsBounce
+// isn't recognizing a provider's DSN format.
+router.post('/settings/inspect-bounces', requireAdmin, asyncHandler(async (req, res) => {
+  const bounceProcessor = require('../services/bounceProcessor');
+  const result = await bounceProcessor.inspectUnread(5);
+  res.json(result);
+}));
+
 // ============================================
 // BROADCAST ENDPOINTS (Admin only)
 // ============================================

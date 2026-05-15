@@ -166,6 +166,8 @@ const elements = {
   imapProcessedFolder: document.getElementById('imapProcessedFolder'),
   testImapBtn: document.getElementById('testImapBtn'),
   runBounceCheckBtn: document.getElementById('runBounceCheckBtn'),
+  inspectBouncesBtn: document.getElementById('inspectBouncesBtn'),
+  imapInspectResult: document.getElementById('imapInspectResult'),
 };
 
 // ============================================
@@ -804,6 +806,81 @@ async function runBounceCheckNow() {
     elements.runBounceCheckBtn.disabled = false;
     elements.runBounceCheckBtn.textContent = 'Run Bounce Check Now';
   }
+}
+
+async function inspectBounces() {
+  try {
+    elements.inspectBouncesBtn.disabled = true;
+    elements.inspectBouncesBtn.textContent = 'Inspecting...';
+    elements.imapInspectResult.style.display = 'none';
+    elements.imapInspectResult.innerHTML = '';
+
+    const result = await api.request('/settings/inspect-bounces', { method: 'POST' });
+
+    if (!result.success) {
+      showToast('Inspect failed: ' + (result.error || 'Unknown error'), 'error', 8000);
+      return;
+    }
+    if (result.count === 0) {
+      showToast('No unread messages in the inbox folder', 'info');
+      return;
+    }
+
+    renderImapInspectResult(result.messages);
+    elements.imapInspectResult.style.display = 'block';
+    elements.imapInspectResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (error) {
+    showToast('Inspect failed: ' + error.message, 'error');
+  } finally {
+    elements.inspectBouncesBtn.disabled = false;
+    elements.inspectBouncesBtn.textContent = 'Inspect Unread Mails';
+  }
+}
+
+function renderImapInspectResult(messages) {
+  const cards = messages.map((m) => {
+    if (m.parseError) {
+      return `<div class="inspect-card inspect-error">
+        <div class="inspect-header">UID ${m.uid} — parse failed</div>
+        <div class="inspect-row"><span class="inspect-label">Error:</span> ${escapeHtml(m.parseError)}</div>
+      </div>`;
+    }
+
+    const bounceFlag = m.classifiedAsBounce
+      ? `<span class="inspect-badge inspect-badge-yes">classified as bounce (${escapeHtml(m.classificationKind || '?')})</span>`
+      : '<span class="inspect-badge inspect-badge-no">NOT classified as bounce</span>';
+
+    const trackingFlag = m.trackingIdFound
+      ? `<span class="inspect-badge inspect-badge-yes">tracking id: ${escapeHtml(m.trackingIdFound)}</span>`
+      : '<span class="inspect-badge inspect-badge-no">no X-Coffee-Email-Id found</span>';
+
+    const dsnLine = m.dsnCode
+      ? `<div class="inspect-row"><span class="inspect-label">DSN:</span> ${escapeHtml(m.dsnCode)} — ${escapeHtml(m.dsnReason || '')}</div>`
+      : '<div class="inspect-row"><span class="inspect-label">DSN:</span> <em>none extracted</em></div>';
+
+    const attachments = m.attachmentContentTypes.length > 0
+      ? m.attachmentContentTypes.map(escapeHtml).join(', ')
+      : '<em>none</em>';
+
+    return `<div class="inspect-card">
+      <div class="inspect-header">UID ${m.uid} — ${escapeHtml(m.subject)}</div>
+      <div class="inspect-flags">${bounceFlag} ${trackingFlag}</div>
+      <div class="inspect-row"><span class="inspect-label">From:</span> ${escapeHtml(m.from)}</div>
+      <div class="inspect-row"><span class="inspect-label">Return-Path:</span> ${escapeHtml(m.returnPath || '(none)')}</div>
+      <div class="inspect-row"><span class="inspect-label">Content-Type:</span> <code>${escapeHtml(m.contentType || '(none)')}</code></div>
+      <div class="inspect-row"><span class="inspect-label">Auto-Submitted:</span> ${escapeHtml(m.autoSubmitted || '(none)')}</div>
+      <div class="inspect-row"><span class="inspect-label">Attachments:</span> ${attachments}</div>
+      ${dsnLine}
+      <details class="inspect-snippet">
+        <summary>Body snippet (first 500 chars)</summary>
+        <pre>${escapeHtml(m.bodySnippet || '')}</pre>
+      </details>
+    </div>`;
+  });
+
+  elements.imapInspectResult.innerHTML =
+    `<h4 style="margin-top: 16px;">Inspection result (${messages.length} unread message${messages.length === 1 ? '' : 's'}):</h4>`
+    + cards.join('');
 }
 
 // ============================================
@@ -1479,6 +1556,7 @@ function init() {
   elements.testSmtpBtn.addEventListener('click', testSmtp);
   elements.testImapBtn.addEventListener('click', testImap);
   elements.runBounceCheckBtn.addEventListener('click', runBounceCheckNow);
+  elements.inspectBouncesBtn.addEventListener('click', inspectBounces);
 
   // Active users filter
   const filterPending = document.getElementById('filterPending');
