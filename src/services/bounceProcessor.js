@@ -395,22 +395,32 @@ const testConnection = async () => {
   try {
     await client.connect();
 
-    // List mailboxes so we can tell the user if the processed-bounces folder
-    // is already there or will be auto-created on the first real run.
     const boxes = await client.list();
     const processedFolderExists = boxes.some((b) => b.path === config.processedFolder);
 
-    // Open the inbox read-only — no flag changes, no state mutation.
-    const lock = await client.getMailboxLock(config.inboxFolder, { readonly: true });
-    let totalMessages = 0;
-    let unseenMessages = 0;
-    try {
-      const status = await client.status(config.inboxFolder, { messages: true, unseen: true });
-      totalMessages = status.messages || 0;
-      unseenMessages = status.unseen || 0;
-    } finally {
-      lock.release();
+    // Collect message/unseen counts for every folder so the operator can
+    // see at a glance where bounces might be hiding (e.g. provider auto-
+    // sorting into Junk/Bounces/Quarantine on Exchange-style servers).
+    // Some folders are non-selectable containers — for those, status()
+    // throws; we surface them with null counts rather than aborting.
+    const folders = [];
+    for (const box of boxes) {
+      try {
+        const status = await client.status(box.path, { messages: true, unseen: true });
+        folders.push({
+          path: box.path,
+          messages: status.messages ?? 0,
+          unseen: status.unseen ?? 0,
+        });
+      } catch (_err) {
+        folders.push({ path: box.path, messages: null, unseen: null });
+      }
     }
+
+    // Inbox-specific counts kept for the toast summary (legacy contract).
+    const inboxFolder = folders.find((f) => f.path === config.inboxFolder);
+    const totalMessages = inboxFolder?.messages ?? 0;
+    const unseenMessages = inboxFolder?.unseen ?? 0;
 
     return {
       success: true,
@@ -423,6 +433,7 @@ const testConnection = async () => {
       processedFolderExists,
       totalMessages,
       unseenMessages,
+      folders,
     };
   } catch (err) {
     return { success: false, error: err.message };

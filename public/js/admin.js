@@ -760,19 +760,27 @@ async function testImap() {
   try {
     elements.testImapBtn.disabled = true;
     elements.testImapBtn.textContent = 'Testing...';
+    elements.imapInspectResult.style.display = 'none';
+    elements.imapInspectResult.innerHTML = '';
 
     const result = await api.request('/settings/test-imap', { method: 'POST' });
 
-    if (result.success) {
-      const folderNote = result.processedFolderExists
-        ? `'${result.processedFolder}' folder is ready`
-        : `'${result.processedFolder}' folder doesn't exist yet — will be auto-created on first bounce`;
-      const msg = `Connected to ${result.host}:${result.port} as ${result.user}\n`
-        + `Inbox '${result.inboxFolder}': ${result.totalMessages} messages (${result.unseenMessages} unseen)\n`
-        + folderNote;
-      showToast(msg, 'success', 8000);
-    } else {
+    if (!result.success) {
       showToast('IMAP test failed: ' + (result.error || 'Unknown error'), 'error', 8000);
+      return;
+    }
+
+    const folderNote = result.processedFolderExists
+      ? `'${result.processedFolder}' folder is ready`
+      : `'${result.processedFolder}' folder doesn't exist yet — will be auto-created on first bounce`;
+    const msg = `Connected to ${result.host}:${result.port} as ${result.user}\n`
+      + `Inbox '${result.inboxFolder}': ${result.totalMessages} messages (${result.unseenMessages} unseen)\n`
+      + folderNote;
+    showToast(msg, 'success', 8000);
+
+    if (Array.isArray(result.folders) && result.folders.length > 0) {
+      renderImapFoldersList(result.folders, result.inboxFolder);
+      elements.imapInspectResult.style.display = 'block';
     }
   } catch (error) {
     showToast('IMAP test failed: ' + error.message, 'error');
@@ -780,6 +788,39 @@ async function testImap() {
     elements.testImapBtn.disabled = false;
     elements.testImapBtn.textContent = 'Test IMAP Connection';
   }
+}
+
+function renderImapFoldersList(folders, currentInbox) {
+  // Sort: folders with unseen messages first (likely where bounces live),
+  // then folders with any messages, then empty/non-selectable last.
+  const sorted = [...folders].sort((a, b) => {
+    const ua = a.unseen || 0;
+    const ub = b.unseen || 0;
+    if (ua !== ub) return ub - ua;
+    const ma = a.messages || 0;
+    const mb = b.messages || 0;
+    return mb - ma;
+  });
+
+  const rows = sorted.map((f) => {
+    const isCurrent = f.path === currentInbox;
+    if (f.messages === null) {
+      return `<tr><td>${escapeHtml(f.path)}</td><td><em>not selectable</em></td><td></td></tr>`;
+    }
+    const unseenCell = f.unseen > 0
+      ? `<td class="folder-unseen">${f.unseen}</td>`
+      : `<td>${f.unseen}</td>`;
+    const marker = isCurrent ? ' <span class="folder-current">← polled</span>' : '';
+    return `<tr><td>${escapeHtml(f.path)}${marker}</td><td>${f.messages}</td>${unseenCell}</tr>`;
+  });
+
+  elements.imapInspectResult.innerHTML =
+    '<h4 style="margin-top: 16px;">All IMAP folders:</h4>'
+    + '<p class="settings-hint">Folders with unread mails are listed first. If a bounce isn\'t showing in INBOX, look here for a Junk/Bounces/Spam folder — change "Inbox Folder" in the settings above to whichever folder actually receives them.</p>'
+    + '<table class="folder-table">'
+    + '<thead><tr><th>Folder</th><th>Messages</th><th>Unseen</th></tr></thead>'
+    + '<tbody>' + rows.join('') + '</tbody>'
+    + '</table>';
 }
 
 async function runBounceCheckNow() {
