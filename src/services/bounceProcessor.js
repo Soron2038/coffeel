@@ -360,10 +360,84 @@ const stop = () => {
   }
 };
 
+/**
+ * Diagnostic helper for the admin UI. Connects to the configured IMAP
+ * mailbox, opens the inbox folder, reports counts, and disconnects.
+ *
+ * It does NOT modify the mailbox in any way (no fetch with mark-as-seen,
+ * no move, no delete). Safe to call on a live mailbox.
+ *
+ * Returns a flat object suitable for JSON responses:
+ *   {
+ *     success: true,
+ *     host, port, secure, user, inboxFolder, processedFolder,
+ *     processedFolderExists,
+ *     totalMessages, unseenMessages
+ *   }
+ * or { success: false, error: '...' } on failure.
+ */
+const testConnection = async () => {
+  const config = getImapConfig();
+  if (!config) {
+    return { success: false, error: 'IMAP host not configured' };
+  }
+
+  loadDeps();
+
+  const client = new ImapFlow({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+
+    // List mailboxes so we can tell the user if the processed-bounces folder
+    // is already there or will be auto-created on the first real run.
+    const boxes = await client.list();
+    const processedFolderExists = boxes.some((b) => b.path === config.processedFolder);
+
+    // Open the inbox read-only — no flag changes, no state mutation.
+    const lock = await client.getMailboxLock(config.inboxFolder, { readonly: true });
+    let totalMessages = 0;
+    let unseenMessages = 0;
+    try {
+      const status = await client.status(config.inboxFolder, { messages: true, unseen: true });
+      totalMessages = status.messages || 0;
+      unseenMessages = status.unseen || 0;
+    } finally {
+      lock.release();
+    }
+
+    return {
+      success: true,
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      user: config.user,
+      inboxFolder: config.inboxFolder,
+      processedFolder: config.processedFolder,
+      processedFolderExists,
+      totalMessages,
+      unseenMessages,
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    try {
+      await client.logout();
+    } catch (_err) { /* ignore */ }
+  }
+};
+
 module.exports = {
   start,
   stop,
   processOnce,
+  testConnection,
 
   // Exported for tests
   classifyAsBounce,

@@ -164,6 +164,8 @@ const elements = {
   imapPollIntervalMinutes: document.getElementById('imapPollIntervalMinutes'),
   imapInboxFolder: document.getElementById('imapInboxFolder'),
   imapProcessedFolder: document.getElementById('imapProcessedFolder'),
+  testImapBtn: document.getElementById('testImapBtn'),
+  runBounceCheckBtn: document.getElementById('runBounceCheckBtn'),
 };
 
 // ============================================
@@ -736,9 +738,9 @@ async function testSmtp() {
   try {
     elements.testSmtpBtn.disabled = true;
     elements.testSmtpBtn.textContent = 'Testing...';
-    
+
     const result = await api.request('/settings/test-smtp', { method: 'POST' });
-    
+
     if (result.success) {
       showToast('Test email sent successfully!', 'success');
     } else {
@@ -749,6 +751,58 @@ async function testSmtp() {
   } finally {
     elements.testSmtpBtn.disabled = false;
     elements.testSmtpBtn.textContent = 'Test SMTP';
+  }
+}
+
+async function testImap() {
+  try {
+    elements.testImapBtn.disabled = true;
+    elements.testImapBtn.textContent = 'Testing...';
+
+    const result = await api.request('/settings/test-imap', { method: 'POST' });
+
+    if (result.success) {
+      const folderNote = result.processedFolderExists
+        ? `'${result.processedFolder}' folder is ready`
+        : `'${result.processedFolder}' folder doesn't exist yet — will be auto-created on first bounce`;
+      const msg = `Connected to ${result.host}:${result.port} as ${result.user}\n`
+        + `Inbox '${result.inboxFolder}': ${result.totalMessages} messages (${result.unseenMessages} unseen)\n`
+        + folderNote;
+      showToast(msg, 'success', 8000);
+    } else {
+      showToast('IMAP test failed: ' + (result.error || 'Unknown error'), 'error', 8000);
+    }
+  } catch (error) {
+    showToast('IMAP test failed: ' + error.message, 'error');
+  } finally {
+    elements.testImapBtn.disabled = false;
+    elements.testImapBtn.textContent = 'Test IMAP Connection';
+  }
+}
+
+async function runBounceCheckNow() {
+  try {
+    elements.runBounceCheckBtn.disabled = true;
+    elements.runBounceCheckBtn.textContent = 'Running...';
+
+    const result = await api.request('/settings/run-bounce-check', { method: 'POST' });
+
+    if (result.success) {
+      const msg = `Scanned ${result.processed} unread message(s) — `
+        + `${result.matched} bounce(s) matched, ${result.unmatched} unmatched`;
+      showToast(msg, result.matched > 0 ? 'success' : 'info', 8000);
+    } else if (result.error === 'disabled') {
+      showToast('Bounce check skipped — IMAP host is not configured', 'warning');
+    } else if (result.error === 'in-flight') {
+      showToast('A bounce check is already running, please wait', 'warning');
+    } else {
+      showToast('Bounce check failed: ' + (result.error || 'Unknown error'), 'error', 8000);
+    }
+  } catch (error) {
+    showToast('Bounce check failed: ' + error.message, 'error');
+  } finally {
+    elements.runBounceCheckBtn.disabled = false;
+    elements.runBounceCheckBtn.textContent = 'Run Bounce Check Now';
   }
 }
 
@@ -1340,13 +1394,14 @@ function getBalanceClass(balance) {
   return balance > 0 ? 'balance-positive' : balance < 0 ? 'balance-negative' : 'balance-zero';
 }
 
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', durationMs = 3000) {
   const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-message">${escapeHtml(message)}</span>`;
+  // white-space: pre-line lets callers pass multi-line diagnostics with \n.
+  toast.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-message" style="white-space: pre-line;">${escapeHtml(message)}</span>`;
   elements.toastContainer.appendChild(toast);
-  setTimeout(() => { toast.classList.add('removing'); setTimeout(() => toast.remove(), 200); }, 3000);
+  setTimeout(() => { toast.classList.add('removing'); setTimeout(() => toast.remove(), 200); }, durationMs);
 }
 
 // Find user by ID, show error toast if not found
@@ -1422,6 +1477,8 @@ function init() {
   // Settings form
   elements.settingsForm.addEventListener('submit', saveSettings);
   elements.testSmtpBtn.addEventListener('click', testSmtp);
+  elements.testImapBtn.addEventListener('click', testImap);
+  elements.runBounceCheckBtn.addEventListener('click', runBounceCheckNow);
 
   // Active users filter
   const filterPending = document.getElementById('filterPending');

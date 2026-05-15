@@ -241,10 +241,27 @@ router.post('/settings/test-smtp', requireAdmin, asyncHandler(async (req, res) =
     return res.status(400).json({ success: false, error: 'Admin email not configured' });
   }
   const result = await emailService.sendTestEmail(adminEmail);
-  res.json(result.success 
+  res.json(result.success
     ? { success: true, message: 'Test email sent successfully' }
     : { success: false, error: result.error }
   );
+}));
+
+// POST /api/settings/test-imap - Diagnose IMAP connectivity (admin).
+// Read-only: connects, opens the inbox folder, reports counts, disconnects.
+// Does NOT modify the mailbox in any way.
+router.post('/settings/test-imap', requireAdmin, asyncHandler(async (req, res) => {
+  const bounceProcessor = require('../services/bounceProcessor');
+  const result = await bounceProcessor.testConnection();
+  res.json(result);
+}));
+
+// POST /api/settings/run-bounce-check - Trigger one bounce-processor run on
+// demand (admin), so the operator doesn't have to wait for the next poll tick.
+router.post('/settings/run-bounce-check', requireAdmin, asyncHandler(async (req, res) => {
+  const bounceProcessor = require('../services/bounceProcessor');
+  const result = await bounceProcessor.processOnce();
+  res.json(result);
 }));
 
 // ============================================
