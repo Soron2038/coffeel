@@ -26,10 +26,11 @@ const getPaymentService = () => {
  * @returns {Array} Array of user objects
  */
 const getAllUsers = (includeDeleted = false) => {
-  // Subquery on emails surfaces recent hard/soft bounces so the user list
-  // can show a "this address bounced" badge. 30d window is long enough to
-  // catch operational issues but short enough that a long-fixed bounce
-  // from years ago doesn't permanently flag the user.
+  // Subqueries on emails surface recent bounces so the user list can show a
+  // "this address bounced" badge and the "With Bounces" filter can match on
+  // hard/soft counts. 30d window is long enough to catch operational issues
+  // but short enough that a long-fixed bounce from years ago doesn't
+  // permanently flag the user.
   let sql = `
     SELECT
       u.id,
@@ -49,7 +50,19 @@ const getAllUsers = (includeDeleted = false) => {
          WHERE e.user_id = u.id
            AND e.status IN ('bounced_hard', 'bounced_soft')
            AND e.bounced_at > datetime('now', '-30 days')
-      ) AS recent_bounce_count
+      ) AS recent_bounce_count,
+      (
+        SELECT COUNT(*) FROM emails e
+         WHERE e.user_id = u.id
+           AND e.status = 'bounced_hard'
+           AND e.bounced_at > datetime('now', '-30 days')
+      ) AS hard_bounce_count,
+      (
+        SELECT COUNT(*) FROM emails e
+         WHERE e.user_id = u.id
+           AND e.status = 'bounced_soft'
+           AND e.bounced_at > datetime('now', '-30 days')
+      ) AS soft_bounce_count
     FROM users u
   `;
 
@@ -629,9 +642,12 @@ const formatUser = (row) => ({
   deletedAt: row.deleted_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
-  // Only present when fetched via getAllUsers (joined subquery); single-row
-  // getters don't compute this to keep cost predictable.
+  // Only present when fetched via getAllUsers (joined subqueries); single-row
+  // getters don't compute these to keep cost predictable. Same 30-day window
+  // for all three so the badge and the "With Bounces" filter agree on scope.
   recentBounceCount: row.recent_bounce_count ?? 0,
+  hardBounceCount: row.hard_bounce_count ?? 0,
+  softBounceCount: row.soft_bounce_count ?? 0,
 });
 
 // Helper function to log audit entries

@@ -479,6 +479,10 @@ function renderUserRow(user, isDeleted) {
   </tr>`;
 }
 
+function isUserBouncing(user) {
+  return (user.hardBounceCount || 0) > 0 || (user.softBounceCount || 0) >= 2;
+}
+
 function renderActiveUsers() {
   // Apply filter
   const filterEl = document.getElementById('filterPending');
@@ -491,6 +495,8 @@ function renderActiveUsers() {
     filteredUsers = activeUsers.filter(u => (u.currentTab || 0) > 0);
   } else if (filter === 'debt') {
     filteredUsers = activeUsers.filter(u => (u.currentTab || 0) + (u.pendingPayment || 0) > 0);
+  } else if (filter === 'bouncing') {
+    filteredUsers = activeUsers.filter(u => isUserBouncing(u));
   }
 
   if (filteredUsers.length === 0) {
