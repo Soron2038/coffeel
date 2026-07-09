@@ -9,6 +9,10 @@
 let allUsers = [];
 let activeUsers = [];
 let deletedUsers = [];
+const sortState = {
+  active: { column: 'name', direction: 1 },
+  deleted: { column: 'name', direction: 1 },
+};
 let payments = [];
 let settings = {};
 let adminUsers = [];
@@ -483,6 +487,56 @@ function isUserBouncing(user) {
   return (user.hardBounceCount || 0) > 0 || (user.softBounceCount || 0) >= 2;
 }
 
+function compareDates(a, b, direction) {
+  // Missing dates always sort last, regardless of direction
+  if (!a && !b) return 0;
+  if (!a) return direction;
+  if (!b) return -direction;
+  return new Date(a) - new Date(b);
+}
+
+function sortUsers(users, { column, direction }) {
+  const byName = (a, b) =>
+    (a.lastName || '').localeCompare(b.lastName || '', undefined, { sensitivity: 'base' }) ||
+    (a.firstName || '').localeCompare(b.firstName || '', undefined, { sensitivity: 'base' });
+  const comparators = {
+    name: byName,
+    email: (a, b) => (a.email || '').localeCompare(b.email || '', undefined, { sensitivity: 'base' }),
+    tab: (a, b) => (a.currentTab || 0) - (b.currentTab || 0),
+    pending: (a, b) => (a.pendingPayment || 0) - (b.pendingPayment || 0),
+    balance: (a, b) => (a.accountBalance || 0) - (b.accountBalance || 0),
+    lastRequest: (a, b) => compareDates(a.lastPaymentRequest, b.lastPaymentRequest, direction),
+    deletedAt: (a, b) => compareDates(a.deletedAt, b.deletedAt, direction),
+  };
+  const compare = comparators[column] || byName;
+  return [...users].sort((a, b) => direction * compare(a, b));
+}
+
+function updateSortIndicators(thead, state) {
+  thead.querySelectorAll('th.sortable').forEach((th) => {
+    th.classList.toggle('sorted-asc', th.dataset.sort === state.column && state.direction === 1);
+    th.classList.toggle('sorted-desc', th.dataset.sort === state.column && state.direction === -1);
+  });
+}
+
+function setupTableSorting(tableId, state, render) {
+  const thead = document.querySelector(`#${tableId} thead`);
+  if (!thead) return;
+  thead.addEventListener('click', (e) => {
+    const th = e.target.closest('th.sortable');
+    if (!th) return;
+    if (state.column === th.dataset.sort) {
+      state.direction = -state.direction;
+    } else {
+      state.column = th.dataset.sort;
+      state.direction = 1;
+    }
+    updateSortIndicators(thead, state);
+    render();
+  });
+  updateSortIndicators(thead, state);
+}
+
 function renderActiveUsers() {
   // Apply filter
   const filterEl = document.getElementById('filterPending');
@@ -504,7 +558,8 @@ function renderActiveUsers() {
     elements.activeUsersBody.innerHTML = `<tr><td colspan="7" class="empty-message">${message}</td></tr>`;
     return;
   }
-  elements.activeUsersBody.innerHTML = filteredUsers.map(u => renderUserRow(u, false)).join('');
+  const sortedUsers = sortUsers(filteredUsers, sortState.active);
+  elements.activeUsersBody.innerHTML = sortedUsers.map(u => renderUserRow(u, false)).join('');
 }
 
 function renderDeletedUsers() {
@@ -514,7 +569,8 @@ function renderDeletedUsers() {
     return;
   }
   elements.noDeletedUsers.style.display = 'none';
-  elements.deletedUsersBody.innerHTML = deletedUsers.map(u => renderUserRow(u, true)).join('');
+  const sortedUsers = sortUsers(deletedUsers, sortState.deleted);
+  elements.deletedUsersBody.innerHTML = sortedUsers.map(u => renderUserRow(u, true)).join('');
 }
 
 function renderPayments() {
@@ -1670,6 +1726,10 @@ function init() {
   if (filterPending) {
     filterPending.addEventListener('change', renderActiveUsers);
   }
+
+  // Sortable column headers
+  setupTableSorting('activeUsersTable', sortState.active, renderActiveUsers);
+  setupTableSorting('deletedUsersTable', sortState.deleted, renderDeletedUsers);
 
   // Export
   elements.exportCsvBtn.addEventListener('click', exportCsv);

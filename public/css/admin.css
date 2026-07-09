@@ -221,6 +221,25 @@ body::before {
   color: var(--color-gray-600);
 }
 
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th.sortable:hover {
+  color: var(--color-gray-900);
+}
+
+.data-table th.sorted-asc::after {
+  content: ' ▲';
+  font-size: 10px;
+}
+
+.data-table th.sorted-desc::after {
+  content: ' ▼';
+  font-size: 10px;
+}
+
 .data-table tbody tr:hover {
   background: var(--color-gray-50);
 }
