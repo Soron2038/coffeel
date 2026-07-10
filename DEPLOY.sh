@@ -130,6 +130,30 @@ check_os() {
     success "Operating system: Ubuntu $VERSION_ID"
 }
 
+check_existing_installation() {
+    # Detect an existing installation: git repo or .env at the install dir
+    if [ -d "$INSTALL_DIR/.git" ] || [ -f "$INSTALL_DIR/.env" ]; then
+        echo
+        echo -e "${RED}╔═══════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  ⚠  EXISTING INSTALLATION DETECTED                ║${NC}"
+        echo -e "${RED}╚═══════════════════════════════════════════════════╝${NC}"
+        echo
+        warn "CofFeEL is already installed at $INSTALL_DIR."
+        warn "This is the INSTALL script, NOT the update script!"
+        echo
+        info "To update an existing installation, use instead:"
+        echo -e "    ${GREEN}cd $INSTALL_DIR && ./UPDATE.sh${NC}"
+        echo
+        warn "If you continue anyway, you may LOSE your configuration"
+        warn "(.env: SMTP credentials, bank details, session secret)."
+        echo
+        if ! prompt_yes_no "Continue with the INSTALL script anyway?" "n"; then
+            echo "Aborted. Use ./UPDATE.sh to update."
+            exit 0
+        fi
+    fi
+}
+
 # ============================================
 # INSTALLATION STEPS
 # ============================================
@@ -612,6 +636,7 @@ main() {
 
     check_root
     check_os
+    check_existing_installation
 
     echo
     info "This script will install CofFeEL on this server."
