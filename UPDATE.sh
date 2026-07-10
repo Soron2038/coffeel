@@ -4,7 +4,11 @@
 # =====================
 # Updates an existing CofFeEL installation on the server
 #
-# Usage: ./UPDATE.sh [options]
+# Usage (recommended — a downloaded copy is immune to being rewritten by
+# its own `git pull` mid-run):
+#   curl -fsSLo /tmp/UPDATE.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh
+#   bash /tmp/UPDATE.sh [options]
+# or: ./UPDATE.sh [options] (from /opt/coffeel)
 #
 # Options:
 #   --restart    Force restart of the PM2 service after update
@@ -105,7 +109,11 @@ prompt_yes_no() {
 show_help() {
     echo "CofFeEL Update Script"
     echo ""
-    echo "Usage: ./UPDATE.sh [options]"
+    echo "Usage (recommended):"
+    echo "  curl -fsSLo /tmp/UPDATE.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh"
+    echo "  bash /tmp/UPDATE.sh [options]"
+    echo ""
+    echo "or: ./UPDATE.sh [options] (from /opt/coffeel)"
     echo ""
     echo "Options:"
     echo "  --restart    Force restart of the PM2 service after update"

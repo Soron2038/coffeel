@@ -4,9 +4,10 @@
 # =========================
 # Automated deployment for fresh Ubuntu servers (22.04+ / 24.04 LTS)
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
-#    or: wget -qO- https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
-#    or: ./DEPLOY.sh (if already on server)
+# Usage (download first, then run — do not pipe curl straight into bash):
+#   curl -fsSLo /tmp/DEPLOY.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh
+#   bash /tmp/DEPLOY.sh
+# or: ./DEPLOY.sh (if already on server)
 #
 # Co-Authored-By: Warp <agent@warp.dev>
 
@@ -175,7 +176,8 @@ check_existing_installation() {
         warn "This is the INSTALL script, NOT the update script!"
         echo
         info "To update an existing installation, use instead:"
-        echo -e "    ${GREEN}cd $INSTALL_DIR && ./UPDATE.sh${NC}"
+        echo -e "    ${GREEN}curl -fsSLo /tmp/UPDATE.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh${NC}"
+        echo -e "    ${GREEN}bash /tmp/UPDATE.sh${NC}"
         echo
         warn "If you continue anyway, you may LOSE your configuration"
         warn "(.env: SMTP credentials, bank details, session secret)."

@@ -22,8 +22,11 @@ CofFeEL replaces a paper-based coffee tally system with a modern, touch-optimize
 For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` does everything end-to-end. Run it as a sudo-capable user (not root):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
+curl -fsSLo /tmp/DEPLOY.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh
+bash /tmp/DEPLOY.sh
 ```
+
+(Download first, then run — piping curl straight into bash would start executing before the download is complete and makes interactive prompts unreliable.)
 
 > **Note:** If the script detects an existing installation at `/opt/coffeel`, it warns and aborts by default — this is the install script, not the update path. Use [`UPDATE.sh`](#-updates) for updates.
 
@@ -79,11 +82,14 @@ The admin panel will be at `http://localhost:3000/admin.html`
 
 ## 🔄 Updates
 
-On the production server, run the bundled `UPDATE.sh`:
+On the production server, download and run the latest `UPDATE.sh`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh | bash
+curl -fsSLo /tmp/UPDATE.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh
+bash /tmp/UPDATE.sh
 ```
+
+Running the downloaded copy from `/tmp` (instead of `./UPDATE.sh` inside `/opt/coffeel`) also avoids the script being rewritten by its own `git pull` while it is still executing.
 
 The script does the following automatically:
 

@@ -9,7 +9,8 @@ This guide covers deploying CofFeEL to an Ubuntu server with Nginx, PM2, SSL, an
 For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` runs every step in this guide automatically:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
+curl -fsSLo /tmp/DEPLOY.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh
+bash /tmp/DEPLOY.sh
 ```
 
 It walks through 13 steps interactively: install build tools, Node 20, PM2, Nginx (with `client_max_body_size 50M` for backup uploads + standard security headers), clone the repo to `/opt/coffeel`, install npm dependencies, generate `.env` (optional interactive SMTP / bank wizard, otherwise minimal config), initialize the database, configure Nginx as reverse proxy, start under PM2 and register `pm2-<user>.service` via systemd so the app survives reboots, optional UFW firewall, optional Let's Encrypt SSL, optional daily backup cron.
@@ -406,9 +407,11 @@ curl http://localhost:3000/api/health
 ### On the server (recommended): `UPDATE.sh`
 
 ```bash
-cd /opt/coffeel
-./UPDATE.sh
+curl -fsSLo /tmp/UPDATE.sh https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh
+bash /tmp/UPDATE.sh
 ```
+
+Download first, then run: piping curl straight into bash would start executing before the download completes, and running `./UPDATE.sh` inside `/opt/coffeel` risks the script being rewritten by its own `git pull` mid-run. (Both still work — the downloaded copy is just the safest path.)
 
 This is the primary update path. It does the following automatically:
 
