@@ -465,6 +465,147 @@ check_config_drift() {
     [ "$pm2_startup_drift" = true ] && handle_pm2_startup_drift
 }
 
+# ============================================
+# TLS CERTIFICATE CHECK (read-only)
+# ============================================
+#
+# Enterprise certificates (e.g. HARICA) are installed and renewed manually —
+# no certbot timer watches them. This check is a safety net: it verifies that
+# the certificate files nginx references still exist, are not expired (or
+# about to expire), match their private key, and that nginx actually serves
+# them. It never changes anything and never blocks the update — warnings only.
+
+check_tls_certificates() {
+    if ! command -v openssl &>/dev/null; then
+        warn "openssl not found — skipping TLS certificate check"
+        return 0
+    fi
+
+    local nginx_dump
+    if ! nginx_dump=$(sudo nginx -T 2>/dev/null); then
+        warn "Could not dump nginx config (sudo nginx -T failed) — skipping TLS check"
+        return 0
+    fi
+
+    # Pair every ssl_certificate with the ssl_certificate_key that follows it
+    # in the same server block (nginx -T preserves order).
+    local cert_key_pairs
+    cert_key_pairs=$(echo "$nginx_dump" | awk '
+        $1 == "ssl_certificate"     { gsub(/;$/, "", $2); cert = $2 }
+        $1 == "ssl_certificate_key" { gsub(/;$/, "", $2); if (cert != "") print cert "|" $2; cert = "" }
+    ' | sort -u)
+
+    local listens_443=false
+    echo "$nginx_dump" | grep -qE '^\s*listen[^;]*443' && listens_443=true
+
+    if [ -z "$cert_key_pairs" ]; then
+        if [ "$listens_443" = true ]; then
+            warn "TLS drift: nginx listens on port 443 but references NO ssl_certificate."
+            warn "  HTTPS is broken. Check /etc/nginx/sites-available/coffeel and"
+            warn "  restore the ssl server block (certificate + key paths)."
+        else
+            info "No HTTPS/ssl_certificate configured in nginx — nothing to check."
+        fi
+        return 0
+    fi
+
+    local all_ok=true
+    local cert key
+    while IFS='|' read -r cert key; do
+        [ -z "$cert" ] && continue
+        echo ""
+        info "Certificate: $cert"
+
+        if ! sudo test -f "$cert"; then
+            warn "  MISSING — nginx references this file but it does not exist!"
+            warn "  nginx will fail to (re)start or reload until this is fixed."
+            all_ok=false
+            continue
+        fi
+
+        local subject issuer enddate
+        subject=$(sudo openssl x509 -in "$cert" -noout -subject 2>/dev/null | sed 's/^subject=//')
+        issuer=$(sudo openssl x509 -in "$cert" -noout -issuer 2>/dev/null | sed 's/^issuer=//')
+        enddate=$(sudo openssl x509 -in "$cert" -noout -enddate 2>/dev/null | cut -d= -f2)
+
+        if [ -z "$enddate" ]; then
+            warn "  UNREADABLE — file exists but is not a valid PEM certificate"
+            all_ok=false
+            continue
+        fi
+
+        info "  Subject: $subject"
+        info "  Issuer:  $issuer"
+        info "  Expires: $enddate"
+
+        if ! sudo openssl x509 -in "$cert" -noout -checkend 0 &>/dev/null; then
+            warn "  EXPIRED — browsers are showing security errors right NOW."
+            warn "  Renew the certificate with the issuer above, then reload nginx."
+            all_ok=false
+        elif ! sudo openssl x509 -in "$cert" -noout -checkend $((30 * 24 * 3600)) &>/dev/null; then
+            warn "  Expires in LESS THAN 30 DAYS — start the renewal process now."
+            all_ok=false
+        else
+            success "  Validity OK (more than 30 days remaining)"
+        fi
+
+        if [ -n "$key" ]; then
+            if ! sudo test -f "$key"; then
+                warn "  Private key MISSING: $key"
+                warn "  nginx will fail to (re)start or reload until this is fixed."
+                all_ok=false
+            else
+                local cert_pub key_pub
+                cert_pub=$(sudo openssl x509 -in "$cert" -noout -pubkey 2>/dev/null)
+                key_pub=$(sudo openssl pkey -in "$key" -pubout 2>/dev/null)
+                if [ -n "$cert_pub" ] && [ "$cert_pub" = "$key_pub" ]; then
+                    success "  Private key matches certificate"
+                else
+                    warn "  Private key does NOT match this certificate ($key)"
+                    warn "  nginx reload/restart will FAIL — fix before touching nginx."
+                    all_ok=false
+                fi
+            fi
+        fi
+    done <<< "$cert_key_pairs"
+
+    # Live check: compare the certificate nginx actually serves on :443 with
+    # the on-disk files. Catches "renewed on disk but nginx never reloaded".
+    if [ "$listens_443" = true ]; then
+        echo ""
+        local served_fp
+        served_fp=$(echo | timeout 5 openssl s_client -connect 127.0.0.1:443 2>/dev/null \
+                    | openssl x509 -noout -fingerprint -sha256 2>/dev/null)
+        if [ -z "$served_fp" ]; then
+            warn "Port 443 is configured but no certificate could be fetched from"
+            warn "  https://127.0.0.1 — is nginx running? Check: sudo systemctl status nginx"
+            all_ok=false
+        else
+            local disk_fp match=false
+            while IFS='|' read -r cert key; do
+                sudo test -f "$cert" || continue
+                disk_fp=$(sudo openssl x509 -in "$cert" -noout -fingerprint -sha256 2>/dev/null)
+                [ "$disk_fp" = "$served_fp" ] && match=true
+            done <<< "$cert_key_pairs"
+            if [ "$match" = true ]; then
+                success "nginx is serving the on-disk certificate (fingerprint match)"
+            else
+                warn "The certificate served on :443 differs from the on-disk file(s)."
+                warn "  nginx is probably still running with an old certificate."
+                warn "  Fix: sudo systemctl reload nginx"
+                all_ok=false
+            fi
+        fi
+    fi
+
+    echo ""
+    if [ "$all_ok" = true ]; then
+        success "TLS certificate check passed"
+    else
+        warn "TLS certificate check found issues (see above) — update continues anyway."
+    fi
+}
+
 verify_update() {
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
@@ -567,6 +708,12 @@ main() {
     echo -e "${CYAN}  Step 5: Configuration Drift${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
     check_config_drift
+
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  Step 6: TLS Certificates${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
+    check_tls_certificates
 
     verify_update
 }

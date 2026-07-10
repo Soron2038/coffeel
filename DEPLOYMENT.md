@@ -420,6 +420,7 @@ This is the primary update path. It does the following automatically:
    - missing `client_max_body_size 50M;` in the Nginx site config
    - legacy bash backup cron → replaced with the `daily-db-backup.js`-based one
    - missing PM2 systemd autostart (`pm2-<user>.service` not enabled) → registered so CofFeEL auto-starts after reboots
+6. **TLS certificate check** (read-only, never blocks the update) — for every `ssl_certificate` referenced in the effective nginx config (`nginx -T`): file exists, certificate is valid and not expiring within 30 days, private key matches, and the certificate actually served on `:443` matches the on-disk file (catches "renewed but nginx never reloaded"). Relevant for manually renewed enterprise certificates (e.g. HARICA) that no certbot timer watches.
 
 If there are no remote commits and no force flags, the script exits early without restarting the service.
 
