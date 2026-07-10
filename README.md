@@ -15,6 +15,7 @@ CofFeEL replaces a paper-based coffee tally system with a modern, touch-optimize
 - **Admin Panel**: Payment confirmation, user management, settings
 - **Audit Log**: Complete history of all actions
 - **Email Notifications**: Automatic payment request emails with bank details
+- **Bounce Detection**: IMAP-based detection of bounced emails, surfaced in the user list
 
 ## 🚀 Production Deployment
 
@@ -23,6 +24,8 @@ For a fresh Ubuntu 22.04+ server, the bundled `DEPLOY.sh` does everything end-to
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/DEPLOY.sh | bash
 ```
+
+> **Note:** If the script detects an existing installation at `/opt/coffeel`, it warns and aborts by default — this is the install script, not the update path. Use [`UPDATE.sh`](#-updates) for updates.
 
 The script walks through 13 steps:
 
@@ -79,8 +82,7 @@ The admin panel will be at `http://localhost:3000/admin.html`
 On the production server, run the bundled `UPDATE.sh`:
 
 ```bash
-cd /opt/coffeel
-./UPDATE.sh
+curl -fsSL https://raw.githubusercontent.com/Soron2038/coffeel/main/UPDATE.sh | bash
 ```
 
 The script does the following automatically:
@@ -92,6 +94,8 @@ The script does the following automatically:
 5. **Configuration drift check** — scans the live server for outdated server config and offers to repair it; each item is prompted separately (default: no), so nothing is changed without explicit approval. Currently detects:
    - missing `client_max_body_size` in the Nginx site config (would otherwise reject DB uploads with HTML 413)
    - the legacy bash backup cron, replacing it with the current `scripts/daily-db-backup.js`-based one
+   - missing PM2 systemd autostart (`pm2-<user>.service`) — without it CofFeEL does not come back after a server reboot
+6. **TLS certificate check** (read-only, never blocks the update) — for every certificate referenced in the nginx config: file exists, not expired or expiring within 30 days, private key matches, and the certificate actually served on `:443` matches the file on disk (catches "renewed but nginx never reloaded"). Relevant for manually renewed enterprise certificates (e.g. HARICA).
 
 ### Flags
 
@@ -170,6 +174,7 @@ Real-time search with 150ms debouncing - searches name and email.
 ### Adding Users
 
 Click "Add User" button and fill in:
+
 - First Name (min 2 characters)
 - Last Name (min 2 characters)
 - Email (must be unique)
@@ -182,11 +187,11 @@ Session-based login via `/login.html`. Credentials are stored in the `admin_user
 
 ### Tabs
 
-1. **Active Users** — view active users, confirm payments, adjust tabs
+1. **Active Users** — view active users (sortable columns, bounce-status filter), confirm payments, adjust tabs
 2. **Deleted Users** — view soft-deleted users, restore them, confirm pending payments
 3. **Payment History** — filterable list of all payment transactions, export to CSV
-4. **Settings** — coffee price, SMTP, bank details, admin email
-5. **Broadcasts** — compose and send announcement emails to all active users
+4. **Settings** — coffee price, SMTP, IMAP bounce detection, bank details, admin email
+5. **Broadcasts** — compose and send announcement emails to all active users, with per-recipient delivery status and resend of failed sends
 6. **Admin Users** — manage admin accounts, change passwords
 7. **Backups** — create / download / upload / restore database backups
 
@@ -223,9 +228,10 @@ http://localhost:3000/api
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| POST | `/users/:id/increment` | Add one coffee | No |
+| POST | `/users/:id/increment` | Add one coffee (adds coffee price to tab) | No |
 | POST | `/users/:id/decrement` | Remove one coffee | No |
-| PUT | `/users/:id/coffee-count` | Set coffee count | Admin |
+| PUT | `/users/:id/current-tab` | Set current tab amount (EUR) | Admin |
+| PUT | `/users/:id/balance` | Set account balance (EUR) | Admin |
 
 ### Payments
 
@@ -259,6 +265,7 @@ http://localhost:3000/api
 ### Request/Response Examples
 
 **Create User:**
+
 ```bash
 curl -X POST http://localhost:3000/api/users \
   -H "Content-Type: application/json" \
@@ -266,6 +273,7 @@ curl -X POST http://localhost:3000/api/users \
 ```
 
 **Confirm Payment (Admin):**
+
 ```bash
 # Admin endpoints require a session cookie from POST /api/admin/login.
 # Easiest path: store the cookie and reuse it.
@@ -281,12 +289,14 @@ curl -b cookies.txt -X POST http://localhost:3000/api/users/1/confirm-payment \
 ## 💾 Database Schema
 
 ### users
-- `coffee_count`: Current unconsumed coffees
+
+- `current_tab`: Current unpaid amount in EUR (each coffee adds the coffee price)
 - `pending_payment`: Amount awaiting admin confirmation
 - `account_balance`: Running balance (negative = debt, positive = credit)
 - `deleted_by_user`: Soft delete flag
 
 ### payments
+
 - `type`: 'request' or 'received'
 - `confirmed_by_admin`: Boolean flag
 
@@ -294,10 +304,10 @@ curl -b cookies.txt -X POST http://localhost:3000/api/users/1/confirm-payment \
 
 ### User Clicks "Pay"
 
-1. Calculate amount: `coffee_count × coffee_price`
-2. Apply existing credit if available
-3. Send email with payment request (if amount > 0)
-4. Reset coffee count to 0
+1. Amount = `current_tab`
+2. Apply existing credit (`account_balance`) if available
+3. If an amount remains: send payment request email with bank details and move `current_tab` → `pending_payment`
+4. If credit covers everything: just deduct from the credit — no email is sent
 
 ### Admin Confirms Payment
 
@@ -358,11 +368,13 @@ npm run lint:fix    # Auto-fix lint issues
 1. Visit `/login.html` directly and sign in with the credentials from the `admin_users` table (default `admin` / `admin` after `db:init`).
 2. If you forgot the password and another admin user still exists, log in as that user and reset the password under Admin Panel → Admin Users.
 3. If no admin login works, reset on the server with sqlite3 + bcrypt — generate a hash and update the row:
+
    ```bash
    cd /opt/coffeel
    node -e "console.log(require('bcryptjs').hashSync('newpass', 10))"
    sqlite3 data/coffee.db "UPDATE admin_users SET password_hash = '<hash from above>' WHERE username = 'admin';"
    ```
+
 4. Clear browser cache and try incognito mode.
 5. Check browser console for JavaScript errors.
 
