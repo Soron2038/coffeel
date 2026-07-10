@@ -66,16 +66,36 @@ error() {
     exit 1
 }
 
+# Where prompts should read from. When the script is piped into bash
+# (curl ... | bash), stdin carries the script itself — a plain `read` would
+# swallow the next script lines instead of user input. Read from the
+# controlling terminal in that case. Fails if no terminal exists at all.
+prompt_input() {
+    if [ -t 0 ]; then
+        echo "/dev/stdin"
+    elif (: < /dev/tty) 2>/dev/null; then
+        echo "/dev/tty"
+    else
+        return 1
+    fi
+}
+
 prompt_yes_no() {
     local message="$1"
     local default="${2:-n}"
-    local result
+    local result input
+
+    if ! input=$(prompt_input); then
+        # No terminal available (fully non-interactive): take the default
+        [[ "$default" =~ ^[Yy]$ ]]
+        return
+    fi
 
     if [ "$default" = "y" ]; then
-        read -rp "$(echo -e "${CYAN}$message${NC} [Y/n]: ")" result
+        read -rp "$(echo -e "${CYAN}$message${NC} [Y/n]: ")" result < "$input"
         result="${result:-y}"
     else
-        read -rp "$(echo -e "${CYAN}$message${NC} [y/N]: ")" result
+        read -rp "$(echo -e "${CYAN}$message${NC} [y/N]: ")" result < "$input"
         result="${result:-n}"
     fi
 
